@@ -7,22 +7,41 @@ RLM (Recursive Language Model) is a Python 3.11+ implementation of the paradigm 
 **Status:** Alpha (v0.1.0)
 **License:** BSD 2-Clause
 
+## Quick Start
+
+The tool is runnable via `uvx` (no install required):
+
+```bash
+# Run with mock backend (no API key needed, good for testing)
+uvx rlm --backend callback --verbose
+
+# Run with Anthropic
+ANTHROPIC_API_KEY=... uvx rlm --context-file document.txt --query "Summarize this"
+
+# Run with Ollama (requires openai extra)
+uvx --with openai rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Main points?"
+
+# Also works as a module
+python -m rlm --backend callback --verbose
+```
+
 ## Repository Structure
 
 ```
 spike-claude-code-rlm/
-├── rlm/                        # Core package (5 modules)
+├── rlm/                        # Core package
 │   ├── __init__.py             # Public API exports and version
+│   ├── __main__.py             # python -m rlm support
+│   ├── cli.py                  # CLI entry point (uvx rlm / python -m rlm)
 │   ├── rlm.py                  # RLM orchestrator (iteration loop, code extraction)
 │   ├── backends.py             # LLM backend implementations (Anthropic, OpenAI-compat, Callback)
 │   ├── repl.py                 # Sandboxed REPL environment with security restrictions
-│   └── prompts.py              # System prompts (full and compact) for LLM guidance
-├── sample_data/
-│   └── large_document.txt      # Sample document for testing
-├── demo.py                     # CLI demo with multiple backend options
+│   ├── prompts.py              # System prompts (full and compact) for LLM guidance
+│   └── sample_data/
+│       └── large_document.txt  # Bundled sample document for testing
+├── demo.py                     # Convenience wrapper (delegates to rlm.cli)
 ├── examples.py                 # 10 example usage scenarios
-├── pyproject.toml              # Build config, dependencies, ruff/mypy settings
-├── setup.py                    # Legacy setuptools configuration
+├── pyproject.toml              # Build config (hatchling), dependencies, ruff/mypy settings
 ├── requirements.txt            # Runtime dependencies
 ├── README.md                   # User-facing documentation
 ├── CONTRIBUTING.md             # Contribution guidelines
@@ -44,22 +63,27 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
   - `CallbackBackend` — Wraps a `Callable[[list[dict], str], str]` for custom integrations
 - **`REPLEnv`** (`rlm/repl.py`): Sandboxed execution environment providing `CONTEXT`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`), and safe builtins. Blocks dangerous patterns (os/sys/subprocess imports, eval, exec, open, getattr, etc.).
 - **`prompts.py`** (`rlm/prompts.py`): Two system prompts (`FULL_SYSTEM_PROMPT` at ~120 lines, `COMPACT_SYSTEM_PROMPT` at ~25 lines) that instruct the LLM on the inspect-search-chunk-synthesize strategy.
+- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend`, `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags.
 
 ## Tech Stack and Dependencies
 
 - **Python:** >=3.11 (target: 3.13)
+- **Build backend:** `hatchling`
 - **Required:** `anthropic>=0.39.0`
-- **Optional:** `openai>=1.0.0` (for OpenAI-compatible backends)
-- **Dev tools:** `ruff>=0.8.0`, `mypy>=1.14.0`
-- **Build:** `setuptools>=75.0.0` with `pyproject.toml`
+- **Optional extras:**
+  - `ollama`: `openai>=1.0.0` (for OpenAI-compatible backends)
+  - `dev`: `ruff>=0.8.0`, `mypy>=1.14.0`
+- **Entry point:** `rlm = rlm.cli:main` (console script, enables `uvx rlm`)
 
 ## Development Commands
 
 ```bash
-# Setup
+# Setup with uv
+uv sync --extra dev
+
+# Or traditional setup
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
 pip install -e ".[dev]"
 
 # Linting
@@ -68,14 +92,17 @@ ruff check .
 # Type checking
 mypy rlm/
 
-# Run demo with mock backend (no API key needed)
-python demo.py --backend callback --verbose
+# Run with mock backend (no API key needed)
+uvx rlm --backend callback --verbose
 
-# Run demo with Anthropic
-ANTHROPIC_API_KEY=... python demo.py --backend anthropic --verbose
+# Run with Anthropic
+ANTHROPIC_API_KEY=... uvx rlm --verbose
 
-# Run demo with Ollama
-python demo.py --backend ollama --model llama3.2 --verbose
+# Run with Ollama
+uvx --with openai rlm --backend ollama --model llama3.2 --verbose
+
+# Build the package
+uv build
 ```
 
 ## Code Style and Conventions
@@ -86,7 +113,7 @@ python demo.py --backend ollama --model llama3.2 --verbose
 - **Docstrings:** NumPy-style for all public modules, classes, and functions
 - **Data structures:** Use `dataclasses` from stdlib (not Pydantic)
 - **String formatting:** f-strings
-- **Imports:** Absolute imports within the package (e.g., `from .backends import LLMBackend`)
+- **Imports:** Relative imports within the package (e.g., `from .backends import LLMBackend`)
 - **Error handling:** Specific exception types, informative messages, no bare `except:`
 - **Functions:** Ideally under 50 lines, focused and single-purpose
 
@@ -95,10 +122,10 @@ python demo.py --backend ollama --model llama3.2 --verbose
 There is no formal test suite yet. Testing is done manually:
 
 ```bash
-python demo.py --backend callback --verbose
+uvx rlm --backend callback --verbose
 ```
 
-The `CallbackBackend` with `mock_llm_callback` in `demo.py` provides a deterministic mock that exercises the full iteration loop without requiring API access. Future testing should use `pytest`.
+The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deterministic mock that exercises the full iteration loop without requiring API access. Future testing should use `pytest`.
 
 ## Key Design Patterns
 
@@ -109,12 +136,13 @@ The `CallbackBackend` with `mock_llm_callback` in `demo.py` provides a determini
 
 ## Important Implementation Details
 
-- The default model is `claude-sonnet-4-20250514` (set in both `RLM.__init__` and `demo.py`)
+- The default model is `claude-sonnet-4-20250514` (set in both `RLM.__init__` and `cli.py`)
 - `AnthropicBackend` separates system messages from chat messages per Anthropic API requirements
 - The REPL captures `print()` output (max 10,000 chars) and feeds it back to the LLM as iteration context
 - `llm_query()` calls are limited by `max_depth` (default 3) to prevent infinite recursion
 - The main loop runs up to `max_iterations` (default 10) attempts before failing
-- Async methods (`acompletion`, `acompletion`) currently delegate to their sync counterparts
+- Async methods (`acompletion`) currently delegate to their sync counterparts
+- Sample data is bundled inside the package at `rlm/sample_data/` and accessed via `importlib.resources`
 
 ## Common Pitfalls
 
@@ -122,6 +150,7 @@ The `CallbackBackend` with `mock_llm_callback` in `demo.py` provides a determini
 - The `_extract_code_blocks` regex expects markdown code fences (`` ```python `` or `` ``` ``); changes to code block parsing affect the entire iteration loop
 - `AnthropicBackend` creates a new `AsyncAnthropic` client on every `acompletion` call — this is by design for simplicity but could be optimized
 - The `FINAL_VAR` implementation in `repl.py` is incomplete — `_final_var` is a no-op; the fallback logic checks for `final_` prefixed variables in the namespace instead
+- When using `uvx` with the Ollama backend, pass `--with openai` since `openai` is an optional dependency
 
 ## Environment Variables
 
