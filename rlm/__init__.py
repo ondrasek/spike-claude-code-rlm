@@ -34,6 +34,7 @@ from .backends import (
     OpenAICompatibleBackend,
     TokenUsage,
 )
+from .context import LazyContext, StringContext
 from .repl import REPLEnv, REPLResult
 from .rlm import RLM, RLMResult, RLMStats
 
@@ -50,6 +51,8 @@ __all__ = [
     "ClaudeCLIBackend",
     "CompletionResult",
     "TokenUsage",
+    "LazyContext",
+    "StringContext",
     "REPLEnv",
     "REPLResult",
 ]

@@ -143,15 +143,18 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Load context
+    # Load context — pass a Path for user-provided files so the REPL can
+    # memory-map them (supports files larger than available RAM).
+    context: str | Path
     try:
         if args.context_file:
             context_path: Path = args.context_file
             if not context_path.exists():
                 print(f"Error: Context file not found: {context_path}", file=sys.stderr)
                 return 1
-            context = context_path.read_text()
-            print(f"Loaded context: {len(context):,} characters from {context_path}")
+            context = context_path
+            file_size = context_path.stat().st_size
+            print(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
         else:
             context = _get_default_context()
             print(f"Loaded context: {len(context):,} characters from bundled sample")

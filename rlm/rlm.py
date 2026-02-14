@@ -7,6 +7,7 @@ beyond typical LLM context windows.
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .backends import LLMBackend
@@ -117,14 +118,14 @@ class RLM:
         return re.findall(pattern, text, re.DOTALL)
 
     def _create_llm_query_fn(
-        self, context: str, current_depth: int = 0
+        self, context: str | Path, current_depth: int = 0
     ) -> Callable[[str], str]:
         """Create llm_query function for REPL.
 
         Parameters
         ----------
-        context : str
-            The full context.
+        context : str | Path
+            The full context (string or path to file).
         current_depth : int
             Current recursion depth.
 
@@ -184,13 +185,14 @@ class RLM:
 
         return llm_query
 
-    def completion(self, context: str, query: str) -> RLMResult:
+    def completion(self, context: str | Path, query: str) -> RLMResult:
         """Execute RLM completion.
 
         Parameters
         ----------
-        context : str
-            The full document/context to process.
+        context : str | Path
+            The document/context to process.  Pass a :class:`~pathlib.Path`
+            for memory-mapped access to files that may exceed available RAM.
         query : str
             User's query.
 
@@ -217,8 +219,14 @@ class RLM:
             llm_query_fn=llm_query_fn,
         )
 
-        self._log(f"Starting RLM completion for query: {query}")
-        self._log(f"Context size: {len(context):,} characters")
+        # Determine displayable context size.
+        if isinstance(context, Path):
+            context_size = context.stat().st_size
+            self._log(f"Starting RLM completion for query: {query}")
+            self._log(f"Context size: {context_size:,} bytes (memory-mapped)")
+        else:
+            self._log(f"Starting RLM completion for query: {query}")
+            self._log(f"Context size: {len(context):,} characters")
 
         # Main iteration loop
         for iteration in range(self.max_iterations):
@@ -333,7 +341,7 @@ class RLM:
             error="Maximum iterations reached without final answer",
         )
 
-    async def acompletion(self, context: str, query: str) -> RLMResult:
+    async def acompletion(self, context: str | Path, query: str) -> RLMResult:
         """Async version of completion.
 
         Note: This currently delegates to the synchronous ``completion()``
@@ -342,8 +350,8 @@ class RLM:
 
         Parameters
         ----------
-        context : str
-            The full document/context.
+        context : str | Path
+            The document/context (string or path to file).
         query : str
             User's query.
 

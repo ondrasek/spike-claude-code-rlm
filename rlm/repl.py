@@ -14,7 +14,10 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from .context import LazyContext, StringContext
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +160,7 @@ class REPLEnv:
 
     def __init__(
         self,
-        context: str,
+        context: str | Path,
         llm_query_fn: Callable[[str], str],
         max_output_length: int = 10000,
     ) -> None:
@@ -165,8 +168,11 @@ class REPLEnv:
 
         Parameters
         ----------
-        context : str
-            The full document/context string.
+        context : str | Path
+            The document/context.  A :class:`~pathlib.Path` is memory-mapped
+            via :class:`LazyContext` so files larger than RAM can be processed.
+            A plain ``str`` is wrapped in :class:`StringContext` for a
+            consistent helper API (``CONTEXT.findall()``, etc.).
         llm_query_fn : Callable[[str], str]
             Function to call for recursive LLM queries.
         max_output_length : int
@@ -179,7 +185,10 @@ class REPLEnv:
                 "Run inside a rootless container for safety."
             )
 
-        self.context = context
+        if isinstance(context, Path):
+            self.context: LazyContext | StringContext = LazyContext(context)
+        else:
+            self.context = StringContext(context)
         self.llm_query_fn = llm_query_fn
         self.max_output_length = max_output_length
         self.final_answer: str | None = None
