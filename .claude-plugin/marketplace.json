@@ -1,0 +1,24 @@
+{
+  "name": "rlm-marketplace",
+  "owner": {
+    "name": "Ondrej Krajicek"
+  },
+  "metadata": {
+    "description": "Recursive Language Model (RLM) plugin for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "rlm",
+      "source": "./plugin",
+      "description": "Analyze documents far exceeding LLM context windows by recursively exploring them with LLM-generated Python code in a sandboxed REPL.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ondrej Krajicek"
+      },
+      "repository": "https://github.com/ondrasek/spike-claude-code-rlm",
+      "license": "BSD-2-Clause",
+      "keywords": ["rlm", "llm", "document-analysis", "recursive", "long-context"],
+      "category": "ai-tools"
+    }
+  ]
+}

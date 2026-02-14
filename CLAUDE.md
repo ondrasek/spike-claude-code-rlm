@@ -39,6 +39,8 @@ spike-claude-code-rlm/
 │   ├── prompts.py              # System prompts (full and compact) for LLM guidance
 │   └── sample_data/
 │       └── large_document.txt  # Bundled sample document for testing
+├── .claude-plugin/
+│   └── marketplace.json        # Marketplace catalog for plugin distribution
 ├── plugin/                     # Self-contained Claude Code plugin
 │   ├── .claude-plugin/
 │   │   └── plugin.json         # Plugin manifest (name, version, description)
@@ -47,7 +49,8 @@ spike-claude-code-rlm/
 │   │       └── SKILL.md        # Plugin skill (uses CLAUDE_PLUGIN_ROOT)
 │   ├── rlm/                    # Bundled Python package source
 │   ├── pyproject.toml          # Build config for uv run from plugin dir
-│   └── requirements.txt        # Runtime dependencies
+│   ├── requirements.txt        # Runtime dependencies
+│   └── README.md               # Plugin installation instructions
 ├── demo.py                     # Convenience wrapper (delegates to rlm.cli)
 ├── examples.py                 # 10 example usage scenarios
 ├── pyproject.toml              # Build config (hatchling), dependencies, ruff/mypy settings
@@ -169,19 +172,66 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 
 ## Claude Code Plugin
 
-The `plugin/` directory is the distributable Claude Code plugin. It bundles the entire RLM Python package and skill so it can be installed independently — no PyPI publish required.
+The `plugin/` directory is the distributable Claude Code plugin. It bundles the entire RLM Python package and skill so it can be installed independently — no PyPI publish required. The repo root contains a `.claude-plugin/marketplace.json` so the repository itself serves as a plugin marketplace.
 
-**Test locally:**
+### Installing the plugin
+
+**From GitHub** (recommended for end users):
+```
+/plugin marketplace add ondrasek/spike-claude-code-rlm
+/plugin install rlm@rlm-marketplace
+```
+
+**From a local clone:**
+```
+/plugin marketplace add ./path/to/spike-claude-code-rlm
+/plugin install rlm@rlm-marketplace
+```
+
+**For development / one-off testing** (session-only, no install):
 ```bash
 claude --plugin-dir ./plugin
 ```
-Then use `/rlm:rlm` (namespaced) or let Claude invoke it automatically.
 
-**Plugin structure:**
+**Team-wide via `.claude/settings.json`** (auto-prompts collaborators to install):
+```json
+{
+  "extraKnownMarketplaces": {
+    "rlm-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "ondrasek/spike-claude-code-rlm"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "rlm@rlm-marketplace": true
+  }
+}
+```
+
+### Using the plugin
+
+Once installed, the `/rlm:rlm` skill is available:
+```
+/rlm:rlm path/to/document.txt What are the main themes?
+```
+Claude also invokes the skill automatically when asked to analyze a large document with RLM.
+
+### Uninstalling
+
+```
+/plugin uninstall rlm@rlm-marketplace
+```
+
+### Plugin internals
+
 - `.claude-plugin/plugin.json` — manifest with name `rlm`, version, description
 - `skills/rlm/SKILL.md` — skill that runs `uv run --directory "${CLAUDE_PLUGIN_ROOT}" rlm ...`
 - `rlm/` — bundled Python package source
 - `pyproject.toml` + `requirements.txt` — so `uv run` can build and execute from source
+
+**Prerequisites:** `uv` on PATH and Python 3.11+. No other pre-installation needed.
 
 **Keeping the plugin in sync:** When modifying Python source in `rlm/`, remember to also update `plugin/rlm/` (or automate the copy). The plugin bundles a snapshot of the package.
 
