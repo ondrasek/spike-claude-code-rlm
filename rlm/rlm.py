@@ -5,6 +5,7 @@ beyond typical LLM context windows.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -97,7 +98,7 @@ class RLM:
 
     def _create_llm_query_fn(
         self, context: str, current_depth: int = 0
-    ) -> callable[[str], str]:
+    ) -> Callable[[str], str]:
         """Create llm_query function for REPL.
 
         Args:

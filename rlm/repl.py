@@ -177,10 +177,7 @@ class REPLEnv:
             "any": any,
             "all": all,
             # Prevent access to dangerous builtins
-            "__builtins__": {
-                "__build_class__": __builtins__.__build_class__,  # type: ignore
-                "__name__": "__main__",
-            },
+            "__builtins__": {},
         }
 
         # Execute code
