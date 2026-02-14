@@ -17,19 +17,24 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from .backends import AnthropicBackend, CallbackBackend, OpenAICompatibleBackend
+from .backends import AnthropicBackend, CallbackBackend, LLMBackend, OpenAICompatibleBackend
 from .rlm import RLM
 
 
 def _mock_llm_callback(messages: list[dict[str, str]], model: str) -> str:
     """Mock LLM callback for testing without API access.
 
-    Args:
-        messages: List of messages
-        model: Model identifier
+    Parameters
+    ----------
+    messages : list[dict[str, str]]
+        List of messages.
+    model : str
+        Model identifier.
 
-    Returns:
-        Mock response
+    Returns
+    -------
+    str
+        Mock response.
     """
     last_msg = messages[-1]["content"] if messages else ""
 
@@ -53,22 +58,25 @@ print(f"Sample: {sample[:200]}...")
 """
 
 
-def _get_default_context_path() -> Path:
-    """Get path to the bundled sample document.
+def _get_default_context() -> str:
+    """Read the bundled sample document.
 
-    Returns:
-        Path to the sample document
+    Returns
+    -------
+    str
+        Contents of the sample document.
     """
     ref = resources.files("rlm") / "sample_data" / "large_document.txt"
-    with resources.as_file(ref) as path:
-        return Path(path)
+    return ref.read_text(encoding="utf-8")
 
 
 def main() -> int:
     """Main CLI entry point.
 
-    Returns:
-        Exit code
+    Returns
+    -------
+    int
+        Exit code.
     """
     parser = argparse.ArgumentParser(
         prog="rlm",
@@ -116,6 +124,12 @@ def main() -> int:
         help="Maximum REPL iterations (default: 10)",
     )
     parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=4096,
+        help="Maximum tokens per LLM response (default: 4096)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -124,22 +138,25 @@ def main() -> int:
     args = parser.parse_args()
 
     # Load context
-    context_path = args.context_file or _get_default_context_path()
-
-    if not context_path.exists():
-        print(f"Error: Context file not found: {context_path}", file=sys.stderr)
-        return 1
-
     try:
-        context = context_path.read_text()
+        if args.context_file:
+            context_path: Path = args.context_file
+            if not context_path.exists():
+                print(f"Error: Context file not found: {context_path}", file=sys.stderr)
+                return 1
+            context = context_path.read_text()
+            print(f"Loaded context: {len(context):,} characters from {context_path}")
+        else:
+            context = _get_default_context()
+            print(f"Loaded context: {len(context):,} characters from bundled sample")
     except Exception as e:
         print(f"Error reading context file: {e}", file=sys.stderr)
         return 1
 
-    print(f"Loaded context: {len(context):,} characters from {context_path}")
     print(f"Query: {args.query}\n")
 
     # Initialize backend
+    backend: LLMBackend
     try:
         if args.backend == "anthropic":
             if not os.getenv("ANTHROPIC_API_KEY"):
@@ -178,6 +195,7 @@ def main() -> int:
         model=args.model,
         recursive_model=args.recursive_model,
         max_iterations=args.max_iterations,
+        max_tokens=args.max_tokens,
         verbose=args.verbose,
         compact_prompt=args.compact,
     )
@@ -221,8 +239,10 @@ def main() -> int:
 def _get_version() -> str:
     """Get the package version.
 
-    Returns:
-        Version string
+    Returns
+    -------
+    str
+        Version string.
     """
     from . import __version__
 
