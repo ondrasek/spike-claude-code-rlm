@@ -17,7 +17,13 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from .backends import AnthropicBackend, CallbackBackend, LLMBackend, OpenAICompatibleBackend
+from .backends import (
+    AnthropicBackend,
+    CallbackBackend,
+    ClaudeCLIBackend,
+    LLMBackend,
+    OpenAICompatibleBackend,
+)
 from .rlm import RLM
 
 
@@ -84,7 +90,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=["anthropic", "ollama", "callback"],
+        choices=["anthropic", "ollama", "claude", "callback"],
         default="anthropic",
         help="LLM backend to use (default: anthropic)",
     )
@@ -174,6 +180,10 @@ def main() -> int:
                 api_key="ollama",
             )
             print(f"Using Ollama backend with model: {args.model}")
+
+        elif args.backend == "claude":
+            backend = ClaudeCLIBackend()
+            print(f"Using Claude CLI backend with model: {args.model}")
 
         elif args.backend == "callback":
             backend = CallbackBackend(_mock_llm_callback)

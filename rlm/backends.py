@@ -6,11 +6,17 @@ Supports multiple LLM providers:
 - CallbackBackend: Custom callback function for integration with other systems
 """
 
+import json
+import logging
 import os
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -396,3 +402,195 @@ class CallbackBackend(LLMBackend):
         """
         text = self.callback_fn(messages, model)
         return CompletionResult(text=text, usage=TokenUsage())
+
+
+class ClaudeCLIBackend(LLMBackend):
+    """Backend that shells out to ``claude -p`` (print mode).
+
+    Uses the Claude Code CLI in non-interactive mode for each LLM call.
+    This is useful when you want to leverage an existing Claude Code / Claude
+    Max subscription instead of providing a raw API key.
+
+    No extra Python dependencies are required — only the ``claude`` binary on
+    ``$PATH``.
+    """
+
+    def __init__(
+        self,
+        claude_cmd: str = "claude",
+        *,
+        max_turns: int = 1,
+    ) -> None:
+        """Initialize the Claude CLI backend.
+
+        Parameters
+        ----------
+        claude_cmd : str
+            Path or name of the ``claude`` binary (default: ``"claude"``).
+        max_turns : int
+            ``--max-turns`` passed to ``claude -p`` (default: 1).
+            Each RLM backend call is a single-shot prompt, so 1 is usually
+            correct.  Increase only if the CLI needs agentic follow-up turns
+            to produce a response.
+        """
+        resolved = shutil.which(claude_cmd)
+        if resolved is None:
+            raise FileNotFoundError(
+                f"'{claude_cmd}' not found on PATH. "
+                "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code"
+            )
+        self._cmd = resolved
+        self._max_turns = max_turns
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_conversation(messages: list[dict[str, str]]) -> tuple[str | None, str]:
+        """Split messages into a system prompt and a single user prompt.
+
+        The Claude CLI accepts one prompt string (the last user turn) and an
+        optional ``--system-prompt``.  Multi-turn history is serialised into
+        the prompt with role markers so the model sees the full conversation.
+
+        Returns
+        -------
+        tuple[str | None, str]
+            ``(system_prompt, user_prompt)``
+        """
+        system_prompt: str | None = None
+        parts: list[str] = []
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                system_prompt = content
+            elif role == "assistant":
+                parts.append(f"[assistant]\n{content}")
+            else:
+                parts.append(f"[user]\n{content}")
+
+        user_prompt = "\n\n".join(parts)
+        return system_prompt, user_prompt
+
+    def _run_claude(
+        self,
+        system_prompt: str | None,
+        user_prompt: str,
+        model: str,
+        **kwargs: Any,
+    ) -> CompletionResult:
+        """Execute ``claude -p`` and return the result.
+
+        Parameters
+        ----------
+        system_prompt : str | None
+            Optional system prompt.
+        user_prompt : str
+            The prompt to send.
+        model : str
+            Model alias or full model ID.
+        **kwargs
+            Unused (present for signature compatibility).
+
+        Returns
+        -------
+        CompletionResult
+            Response text and (estimated) token usage.
+        """
+        cmd: list[str] = [
+            self._cmd,
+            "-p",
+            "--output-format", "json",
+            "--model", model,
+            "--max-turns", str(self._max_turns),
+            "--no-session-persistence",
+        ]
+
+        if system_prompt:
+            cmd.extend(["--system-prompt", system_prompt])
+
+        cmd.append(user_prompt)
+
+        logger.debug("Running: %s", " ".join(cmd[:6]) + " ...")
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            raise RuntimeError(
+                f"claude exited with code {proc.returncode}: {stderr}"
+            )
+
+        # --output-format json returns a JSON object with a "result" field.
+        raw = proc.stdout.strip()
+        usage = TokenUsage()
+        try:
+            data = json.loads(raw)
+            text = data.get("result", raw)
+            # Populate token usage if the CLI reports it.
+            if data.get("input_tokens") is not None:
+                usage = TokenUsage(
+                    input_tokens=int(data["input_tokens"]),
+                    output_tokens=int(data.get("output_tokens", 0)),
+                )
+        except (json.JSONDecodeError, TypeError):
+            # Fall back to raw text if the output is not valid JSON.
+            text = raw
+
+        return CompletionResult(text=text, usage=usage)
+
+    # ------------------------------------------------------------------
+    # LLMBackend interface
+    # ------------------------------------------------------------------
+
+    def completion(
+        self, messages: list[dict[str, str]], model: str, **kwargs: Any
+    ) -> CompletionResult:
+        """Generate completion by calling ``claude -p``.
+
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            Conversation messages.
+        model : str
+            Model alias (``sonnet``, ``opus``) or full model ID.
+        **kwargs
+            Additional parameters (currently unused).
+
+        Returns
+        -------
+        CompletionResult
+            Generated text response with token usage.
+        """
+        system_prompt, user_prompt = self._format_conversation(messages)
+        return self._run_claude(system_prompt, user_prompt, model, **kwargs)
+
+    async def acompletion(
+        self, messages: list[dict[str, str]], model: str, **kwargs: Any
+    ) -> CompletionResult:
+        """Async completion via ``claude -p`` (runs synchronously).
+
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            Conversation messages.
+        model : str
+            Model alias or full model ID.
+        **kwargs
+            Additional parameters.
+
+        Returns
+        -------
+        CompletionResult
+            Generated text response with token usage.
+        """
+        system_prompt, user_prompt = self._format_conversation(messages)
+        return self._run_claude(system_prompt, user_prompt, model, **kwargs)
