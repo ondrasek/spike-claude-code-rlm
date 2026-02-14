@@ -39,6 +39,10 @@ spike-claude-code-rlm/
 │   ├── prompts.py              # System prompts (full and compact) for LLM guidance
 │   └── sample_data/
 │       └── large_document.txt  # Bundled sample document for testing
+├── .claude/
+│   └── skills/
+│       └── rlm/
+│           └── SKILL.md        # Claude Code skill for running rlm via /rlm
 ├── demo.py                     # Convenience wrapper (delegates to rlm.cli)
 ├── examples.py                 # 10 example usage scenarios
 ├── pyproject.toml              # Build config (hatchling), dependencies, ruff/mypy settings
@@ -157,6 +161,16 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | For Anthropic backend | Anthropic API authentication key |
+
+## Claude Code Skill
+
+A project-level Claude Code skill is defined at `.claude/skills/rlm/SKILL.md`. It registers the `/rlm` slash command, which runs `uvx rlm` to analyze a document. Usage:
+
+```
+/rlm path/to/document.txt What are the main themes?
+```
+
+Claude can also invoke the skill automatically when a user asks to analyze a large document with RLM. The skill is configured with `allowed-tools` for `Bash(uvx rlm *)`, `Read`, and `Glob`.
 
 ## Areas for Contribution
 
