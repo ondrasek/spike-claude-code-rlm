@@ -47,9 +47,9 @@ spike-claude-code-rlm/
 │   ├── skills/
 │   │   └── rlm/
 │   │       └── SKILL.md        # Plugin skill (uses CLAUDE_PLUGIN_ROOT)
-│   ├── rlm/                    # Bundled Python package source
-│   ├── pyproject.toml          # Build config for uv run from plugin dir
-│   ├── requirements.txt        # Runtime dependencies
+│   ├── rlm -> ../rlm           # Symlink to root package (single source of truth)
+│   ├── pyproject.toml -> ../pyproject.toml
+│   ├── requirements.txt -> ../requirements.txt
 │   └── README.md               # Plugin installation instructions
 ├── demo.py                     # Convenience wrapper (delegates to rlm.cli)
 ├── examples.py                 # 10 example usage scenarios
@@ -227,12 +227,10 @@ Claude also invokes the skill automatically when asked to analyze a large docume
 
 - `.claude-plugin/plugin.json` — manifest with name `rlm`, version, description
 - `skills/rlm/SKILL.md` — skill that runs `uv run --directory "${CLAUDE_PLUGIN_ROOT}" rlm ...`
-- `rlm/` — bundled Python package source
-- `pyproject.toml` + `requirements.txt` — so `uv run` can build and execute from source
+- `rlm/` — symlink to `../rlm` (single source of truth, no manual sync needed)
+- `pyproject.toml` / `requirements.txt` — symlinks to root copies
 
 **Prerequisites:** `uv` on PATH and Python 3.11+. No other pre-installation needed.
-
-**Keeping the plugin in sync:** When modifying Python source in `rlm/`, remember to also update `plugin/rlm/` (or automate the copy). The plugin bundles a snapshot of the package.
 
 ## Areas for Contribution
 

@@ -1,5 +1,1 @@
-# Core dependencies
-anthropic>=0.39.0
-
-# Optional: For OpenAI-compatible backends (Ollama, vLLM, etc.)
-openai>=1.0.0
+../requirements.txt
