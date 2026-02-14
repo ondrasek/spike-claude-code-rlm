@@ -51,7 +51,7 @@ The goal is to create a modern, high-quality Python implementation following cur
 
 - Minimize external dependencies when possible
 - Use well-maintained, popular libraries when needed
-- Pin dependency versions for reproducibility
+- Pin dependency versions for reproducibility using a committed `requirements.txt` file (and optional `constraints.txt`), preferably managed by standard tools like `pip-tools` or using `pip` with `--require-hashes`
 - Document why each dependency is needed
 
 ## Development Workflow
