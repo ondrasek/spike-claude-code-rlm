@@ -39,10 +39,6 @@ spike-claude-code-rlm/
 │   ├── prompts.py              # System prompts (full and compact) for LLM guidance
 │   └── sample_data/
 │       └── large_document.txt  # Bundled sample document for testing
-├── .claude/
-│   └── skills/
-│       └── rlm/
-│           └── SKILL.md        # Claude Code skill for running rlm via /rlm
 ├── plugin/                     # Self-contained Claude Code plugin
 │   ├── .claude-plugin/
 │   │   └── plugin.json         # Plugin manifest (name, version, description)
@@ -171,19 +167,9 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 |---|---|---|
 | `ANTHROPIC_API_KEY` | For Anthropic backend | Anthropic API authentication key |
 
-## Claude Code Integration
+## Claude Code Plugin
 
-### Project-level skill
-
-A project-level skill at `.claude/skills/rlm/SKILL.md` registers `/rlm` for use within this repository. It runs `uvx rlm` and requires the package to be available via PyPI or a local install.
-
-```
-/rlm path/to/document.txt What are the main themes?
-```
-
-### Distributable plugin
-
-The `plugin/` directory is a self-contained Claude Code plugin that bundles the entire RLM Python package. It can be distributed and installed independently — no PyPI publish required.
+The `plugin/` directory is the distributable Claude Code plugin. It bundles the entire RLM Python package and skill so it can be installed independently — no PyPI publish required.
 
 **Test locally:**
 ```bash
