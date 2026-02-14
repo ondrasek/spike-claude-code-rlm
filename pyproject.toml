@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=75.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rlm"
+version = "0.1.0"
+description = "Recursive Language Model - Python 3.11+ implementation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-2-Clause"}
+authors = [
+    {name = "Ondrej Krajicek"}
+]
+keywords = ["ai", "llm", "recursive", "language-model", "rlm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "anthropic>=0.39.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.14.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ondrasek/spike-claude-code-rlm"
+Repository = "https://github.com/ondrasek/spike-claude-code-rlm"
+"Bug Tracker" = "https://github.com/ondrasek/spike-claude-code-rlm/issues"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
