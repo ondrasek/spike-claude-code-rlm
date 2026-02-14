@@ -20,7 +20,7 @@ The goal is to create a modern, high-quality Python implementation following cur
 - Follow **PEP 8** for code formatting and style
 - Use **type hints** for all function signatures and class attributes
 - Prefer **f-strings** for string formatting
-- Use **dataclasses** or **Pydantic models** for data structures where appropriate
+- Prefer **dataclasses** from the standard library for data structures. Only use **Pydantic models** if Pydantic is already an approved dependency or there is a clear need for its validation/parsing features.
 - Write **docstrings** for all public modules, classes, and functions (Google or NumPy style)
 - Keep functions focused and concise (ideally under 50 lines)
 - Use meaningful variable and function names that clearly express intent
