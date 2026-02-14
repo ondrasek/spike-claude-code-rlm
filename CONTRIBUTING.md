@@ -25,7 +25,7 @@ pip install ruff mypy  # Development tools
 ## Code Style
 
 This project uses:
-- **Python 3.13+** features and syntax
+- **Python 3.11+** features and syntax (compatible with 3.13+)
 - **Type hints** for all functions and methods
 - **ruff** for linting and formatting
 - **mypy** for static type checking
@@ -55,7 +55,7 @@ python demo.py --backend callback --verbose
 
 ## Code Guidelines
 
-- Use modern Python 3.13+ features (type hints, dataclasses, etc.)
+- Use modern Python 3.11+ features (type hints, dataclasses, etc.)
 - Follow existing code structure and patterns
 - Add docstrings to all public functions and classes
 - Keep security in mind - validate any code execution carefully

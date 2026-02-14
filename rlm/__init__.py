@@ -1,6 +1,6 @@
 """RLM - Recursive Language Model.
 
-A Python 3.13+ implementation of the Recursive Language Model paradigm
+A Python 3.11+ implementation of the Recursive Language Model paradigm
 from MIT CSAIL research (arXiv:2512.24601).
 
 Unlike traditional RAG (Retrieval-Augmented Generation), RLM treats document

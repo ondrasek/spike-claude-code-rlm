@@ -1,6 +1,6 @@
 # RLM - Recursive Language Model
 
-A modern Python 3.13+ implementation of the Recursive Language Model paradigm from MIT CSAIL research ([arXiv:2512.24601](https://arxiv.org/abs/2512.24601)).
+A modern Python 3.11+ implementation of the Recursive Language Model paradigm from MIT CSAIL research ([arXiv:2512.24601](https://arxiv.org/abs/2512.24601)).
 
 ## What is RLM?
 
@@ -50,7 +50,7 @@ pip install -r requirements.txt
 ```
 
 **Requirements:**
-- Python 3.13+
+- Python 3.11+ (tested with 3.13+)
 - `anthropic>=0.39.0` (for Anthropic API backend)
 - `openai>=1.0.0` (optional, for local models via Ollama/vLLM)
 
@@ -206,8 +206,8 @@ spike-claude-code-rlm/
 
 ## Features
 
-✅ **Python 3.13+ Modern Implementation**
-- Type hints with modern syntax
+✅ **Python 3.11+ Modern Implementation**
+- Type hints with modern syntax (compatible with 3.13+)
 - Dataclasses for clean data structures
 - Async support (acompletion)
 
