@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .context import LazyContext, StringContext
+from .context import CompositeContext, LazyContext, StringContext
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ class REPLEnv:
 
     def __init__(
         self,
-        context: str | Path,
+        context: str | Path | list[Path] | CompositeContext,
         llm_query_fn: Callable[[str], str],
         max_output_length: int = 10000,
     ) -> None:
@@ -168,11 +168,14 @@ class REPLEnv:
 
         Parameters
         ----------
-        context : str | Path
-            The document/context.  A :class:`~pathlib.Path` is memory-mapped
-            via :class:`LazyContext` so files larger than RAM can be processed.
-            A plain ``str`` is wrapped in :class:`StringContext` for a
-            consistent helper API (``CONTEXT.findall()``, etc.).
+        context : str | Path | list[Path] | CompositeContext
+            The document/context.
+
+            * ``str`` — wrapped in :class:`StringContext`.
+            * ``Path`` — memory-mapped via :class:`LazyContext`.
+            * ``list[Path]`` — multiple files wrapped in
+              :class:`CompositeContext`.
+            * ``CompositeContext`` — used as-is.
         llm_query_fn : Callable[[str], str]
             Function to call for recursive LLM queries.
         max_output_length : int
@@ -185,8 +188,12 @@ class REPLEnv:
                 "Run inside a rootless container for safety."
             )
 
-        if isinstance(context, Path):
-            self.context: LazyContext | StringContext = LazyContext(context)
+        if isinstance(context, CompositeContext):
+            self.context: LazyContext | StringContext | CompositeContext = context
+        elif isinstance(context, list):
+            self.context = CompositeContext.from_paths(context)
+        elif isinstance(context, Path):
+            self.context = LazyContext(context)
         else:
             self.context = StringContext(context)
         self.llm_query_fn = llm_query_fn

@@ -24,6 +24,7 @@ from .backends import (
     LLMBackend,
     OpenAICompatibleBackend,
 )
+from .context import CompositeContext
 from .rlm import RLM
 
 
@@ -106,7 +107,19 @@ def main() -> int:
     parser.add_argument(
         "--context-file",
         type=Path,
-        help="Path to context file (default: bundled sample document)",
+        action="append",
+        dest="context_files",
+        help="Path to context file (repeatable for multi-file context)",
+    )
+    parser.add_argument(
+        "--context-dir",
+        type=Path,
+        help="Directory of files to use as context (all files recursively)",
+    )
+    parser.add_argument(
+        "--context-glob",
+        default="**/*",
+        help="Glob pattern when using --context-dir (default: '**/*')",
     )
     parser.add_argument(
         "--query",
@@ -143,12 +156,31 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Load context — pass a Path for user-provided files so the REPL can
-    # memory-map them (supports files larger than available RAM).
-    context: str | Path
+    # Load context — files are memory-mapped so contexts larger than RAM work.
+    context: str | Path | list[Path] | CompositeContext
     try:
-        if args.context_file:
-            context_path: Path = args.context_file
+        if args.context_dir:
+            context_dir: Path = args.context_dir
+            if not context_dir.is_dir():
+                print(f"Error: Not a directory: {context_dir}", file=sys.stderr)
+                return 1
+            context = CompositeContext.from_directory(context_dir, glob=args.context_glob)
+            print(
+                f"Context: {len(context.files)} files from {context_dir} "
+                f"({len(context):,} bytes total)"
+            )
+        elif args.context_files and len(args.context_files) > 1:
+            for p in args.context_files:
+                if not p.exists():
+                    print(f"Error: Context file not found: {p}", file=sys.stderr)
+                    return 1
+            context = CompositeContext.from_paths(args.context_files)
+            print(
+                f"Context: {len(context.files)} files "
+                f"({len(context):,} bytes total)"
+            )
+        elif args.context_files:
+            context_path: Path = args.context_files[0]
             if not context_path.exists():
                 print(f"Error: Context file not found: {context_path}", file=sys.stderr)
                 return 1
@@ -159,7 +191,7 @@ def main() -> int:
             context = _get_default_context()
             print(f"Loaded context: {len(context):,} characters from bundled sample")
     except Exception as e:
-        print(f"Error reading context file: {e}", file=sys.stderr)
+        print(f"Error loading context: {e}", file=sys.stderr)
         return 1
 
     print(f"Query: {args.query}\n")

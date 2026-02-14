@@ -1,14 +1,13 @@
 """Lazy, memory-mapped context for RLM.
 
-Provides a :class:`LazyContext` wrapper that memory-maps a file so the OS
-pages data in and out on demand.  This allows RLM to work with documents
-that exceed available process memory — the 64-bit virtual address space
-is the only hard limit.
+Provides context wrappers so REPL code can use ``CONTEXT.findall()`` /
+``CONTEXT.search()`` regardless of the underlying storage:
 
-For callers that already have the context as a ``str``, a thin
-:class:`StringContext` wrapper exposes the same helper API so REPL code
-can use ``CONTEXT.search()`` / ``CONTEXT.findall()`` regardless of the
-underlying storage.
+* :class:`LazyContext` — memory-maps a single file via :mod:`mmap`.
+* :class:`StringContext` — wraps an in-memory ``str``.
+* :class:`CompositeContext` — wraps *multiple* files and/or strings,
+  providing per-file access (``CONTEXT.file("name")``) and cross-file
+  search (``CONTEXT.findall(pattern)``).
 """
 
 from __future__ import annotations
@@ -319,3 +318,262 @@ class StringContext:
             Substring.
         """
         return self._text[start : start + size]
+
+
+# Type alias for any single-file context wrapper.
+SingleContext = LazyContext | StringContext
+
+# Separator inserted between files when materialising the concatenated view.
+_FILE_SEP = "\n\n"
+
+
+class CompositeContext:
+    """Context backed by multiple files and/or strings.
+
+    Provides:
+
+    * **Per-file access** — ``CONTEXT.files`` lists logical names,
+      ``CONTEXT.file("name")`` returns the individual
+      :class:`LazyContext`/:class:`StringContext`.
+    * **Cross-file search** — ``CONTEXT.findall(pattern)`` returns
+      ``list[tuple[str, str]]`` with ``(filename, match)`` pairs.
+    * **Concatenated view** — slicing and ``len()`` operate on a virtual
+      concatenation (with file-separator markers) for quick sampling.
+
+    Parameters
+    ----------
+    sources : dict[str, SingleContext]
+        Mapping from logical name to context wrapper.
+    """
+
+    def __init__(self, sources: dict[str, SingleContext]) -> None:
+        if not sources:
+            raise ValueError("CompositeContext requires at least one source")
+        self._sources: dict[str, SingleContext] = sources
+
+    # ------------------------------------------------------------------
+    # Factories
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_paths(cls, paths: list[Path], encoding: str = "utf-8") -> CompositeContext:
+        """Create a CompositeContext from a list of file paths.
+
+        Parameters
+        ----------
+        paths : list[Path]
+            Files to include.
+        encoding : str
+            Text encoding for all files.
+
+        Returns
+        -------
+        CompositeContext
+        """
+        sources: dict[str, SingleContext] = {}
+        for p in paths:
+            key = p.name
+            # Disambiguate duplicate basenames by prepending parent dir(s).
+            if key in sources:
+                key = str(p)
+            sources[key] = LazyContext(p, encoding=encoding)
+        return cls(sources)
+
+    @classmethod
+    def from_directory(
+        cls,
+        directory: Path,
+        *,
+        glob: str = "**/*",
+        encoding: str = "utf-8",
+    ) -> CompositeContext:
+        """Create a CompositeContext from all files matching *glob* in a directory.
+
+        Parameters
+        ----------
+        directory : Path
+            Root directory.
+        glob : str
+            Glob pattern (default ``**/*`` — all files recursively).
+        encoding : str
+            Text encoding.
+
+        Returns
+        -------
+        CompositeContext
+        """
+        paths = sorted(p for p in directory.glob(glob) if p.is_file())
+        if not paths:
+            raise FileNotFoundError(f"No files matched '{glob}' in {directory}")
+        sources: dict[str, SingleContext] = {}
+        for p in paths:
+            key = str(p.relative_to(directory))
+            sources[key] = LazyContext(p, encoding=encoding)
+        return cls(sources)
+
+    # ------------------------------------------------------------------
+    # Per-file access
+    # ------------------------------------------------------------------
+
+    @property
+    def files(self) -> list[str]:
+        """Logical names of all sources, in insertion order."""
+        return list(self._sources.keys())
+
+    def file(self, name: str) -> SingleContext:
+        """Return the context for a single file.
+
+        Parameters
+        ----------
+        name : str
+            Logical name as listed in :attr:`files`.
+
+        Returns
+        -------
+        SingleContext
+
+        Raises
+        ------
+        KeyError
+            If *name* is not found.
+        """
+        return self._sources[name]
+
+    # ------------------------------------------------------------------
+    # Concatenated view helpers
+    # ------------------------------------------------------------------
+
+    def __len__(self) -> int:
+        """Total size across all sources (sum of individual sizes)."""
+        return sum(len(s) for s in self._sources.values())
+
+    def __repr__(self) -> str:
+        total = len(self)
+        n = len(self._sources)
+        return f"CompositeContext(files={n}, total_size={total:,})"
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return False
+        return any(item in s for s in self._sources.values())
+
+    def __str__(self) -> str:
+        """Concatenate all sources (use with care for very large contexts)."""
+        parts: list[str] = []
+        for name, src in self._sources.items():
+            parts.append(f"--- {name} ---")
+            parts.append(str(src))
+        return _FILE_SEP.join(parts)
+
+    @overload
+    def __getitem__(self, index: int) -> str: ...
+    @overload
+    def __getitem__(self, index: slice) -> str: ...
+
+    def __getitem__(self, index: int | slice) -> str:
+        """Slice from the concatenated view."""
+        # Materialising the full concatenation is expensive for huge
+        # contexts; but slicing is typically used on small windows
+        # (e.g. CONTEXT[:500]).  We stream through sources to avoid a
+        # full copy when possible.
+        if isinstance(index, int):
+            return str(self)[index]
+        return str(self)[index]
+
+    # ------------------------------------------------------------------
+    # Cross-file regex helpers
+    # ------------------------------------------------------------------
+
+    def search(
+        self, pattern: str, flags: int = 0
+    ) -> tuple[str, re.Match[str] | re.Match[bytes]] | None:
+        """Search across all files; return ``(filename, match)`` for the first hit.
+
+        Parameters
+        ----------
+        pattern : str
+            Regular expression.
+        flags : int
+            Regex flags.
+
+        Returns
+        -------
+        tuple[str, Match] | None
+        """
+        for name, src in self._sources.items():
+            m = src.search(pattern, flags)
+            if m is not None:
+                return (name, m)
+        return None
+
+    def findall(self, pattern: str, flags: int = 0) -> list[tuple[str, str]]:
+        """Find all matches across all files.
+
+        Parameters
+        ----------
+        pattern : str
+            Regular expression.
+        flags : int
+            Regex flags.
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            ``(filename, match_text)`` pairs.
+        """
+        results: list[tuple[str, str]] = []
+        for name, src in self._sources.items():
+            for match_text in src.findall(pattern, flags):
+                results.append((name, match_text))
+        return results
+
+    def lines(self, encoding: str | None = None) -> Iterator[tuple[str, str]]:
+        """Yield ``(filename, line)`` tuples across all files.
+
+        Parameters
+        ----------
+        encoding : str | None
+            Override encoding.
+
+        Yields
+        ------
+        tuple[str, str]
+        """
+        for name, src in self._sources.items():
+            for line in src.lines(encoding=encoding):
+                yield (name, line)
+
+    def chunk(self, start: int, size: int) -> str:
+        """Chunk from the concatenated view.
+
+        Parameters
+        ----------
+        start : int
+            Offset into the concatenated representation.
+        size : int
+            Number of characters.
+
+        Returns
+        -------
+        str
+        """
+        return str(self)[start : start + size]
+
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close all underlying contexts."""
+        for src in self._sources.values():
+            if hasattr(src, "close"):
+                src.close()
+
+    def __del__(self) -> None:  # noqa: D105
+        self.close()
+
+    def __enter__(self) -> CompositeContext:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .backends import LLMBackend
+from .context import CompositeContext
 from .prompts import get_system_prompt, get_user_prompt
 from .repl import REPLEnv
 
@@ -118,14 +119,16 @@ class RLM:
         return re.findall(pattern, text, re.DOTALL)
 
     def _create_llm_query_fn(
-        self, context: str | Path, current_depth: int = 0
+        self,
+        context: str | Path | list[Path] | CompositeContext,
+        current_depth: int = 0,
     ) -> Callable[[str], str]:
         """Create llm_query function for REPL.
 
         Parameters
         ----------
-        context : str | Path
-            The full context (string or path to file).
+        context : str | Path | list[Path] | CompositeContext
+            The full context.
         current_depth : int
             Current recursion depth.
 
@@ -185,14 +188,20 @@ class RLM:
 
         return llm_query
 
-    def completion(self, context: str | Path, query: str) -> RLMResult:
+    def completion(
+        self, context: str | Path | list[Path] | CompositeContext, query: str
+    ) -> RLMResult:
         """Execute RLM completion.
 
         Parameters
         ----------
-        context : str | Path
-            The document/context to process.  Pass a :class:`~pathlib.Path`
-            for memory-mapped access to files that may exceed available RAM.
+        context : str | Path | list[Path] | CompositeContext
+            The document/context to process.
+
+            * ``str`` — in-memory string.
+            * ``Path`` — single file, memory-mapped.
+            * ``list[Path]`` — multiple files, each memory-mapped.
+            * ``CompositeContext`` — pre-built composite.
         query : str
             User's query.
 
@@ -219,13 +228,20 @@ class RLM:
             llm_query_fn=llm_query_fn,
         )
 
+        self._log(f"Starting RLM completion for query: {query}")
+
         # Determine displayable context size.
-        if isinstance(context, Path):
-            context_size = context.stat().st_size
-            self._log(f"Starting RLM completion for query: {query}")
-            self._log(f"Context size: {context_size:,} bytes (memory-mapped)")
+        if isinstance(context, CompositeContext):
+            self._log(
+                f"Context: {len(context.files)} files, "
+                f"{len(context):,} bytes total (composite)"
+            )
+        elif isinstance(context, list):
+            total = sum(p.stat().st_size for p in context)
+            self._log(f"Context: {len(context)} files, {total:,} bytes total")
+        elif isinstance(context, Path):
+            self._log(f"Context size: {context.stat().st_size:,} bytes (memory-mapped)")
         else:
-            self._log(f"Starting RLM completion for query: {query}")
             self._log(f"Context size: {len(context):,} characters")
 
         # Main iteration loop
@@ -341,7 +357,9 @@ class RLM:
             error="Maximum iterations reached without final answer",
         )
 
-    async def acompletion(self, context: str | Path, query: str) -> RLMResult:
+    async def acompletion(
+        self, context: str | Path | list[Path] | CompositeContext, query: str
+    ) -> RLMResult:
         """Async version of completion.
 
         Note: This currently delegates to the synchronous ``completion()``
@@ -350,8 +368,8 @@ class RLM:
 
         Parameters
         ----------
-        context : str | Path
-            The document/context (string or path to file).
+        context : str | Path | list[Path] | CompositeContext
+            The document/context.
         query : str
             User's query.
 

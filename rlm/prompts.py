@@ -29,18 +29,28 @@ Your task is to answer the user's query by writing Python code to explore and an
 In the REPL environment, you have access to:
 
 ### Variables
-- `CONTEXT`: The full document/context. DO NOT print this directly - it's too large.
-  CONTEXT may be backed by a memory-mapped file, so it is NOT a plain ``str``.
-  Use its built-in methods (see below) instead of passing it to ``re`` functions.
+- `CONTEXT`: The document/context. DO NOT print this directly - it's too large.
+  CONTEXT may be a single file (memory-mapped) or a **composite of multiple files**.
+  It is NOT a plain ``str``. Use its built-in methods instead of ``re`` functions.
 
-### CONTEXT Methods
+### CONTEXT Methods (always available)
 - `CONTEXT[start:end]` — slice to get a ``str`` substring
 - `len(CONTEXT)` — total size (bytes for files, chars for strings)
-- `CONTEXT.findall(pattern, flags=0)` — like ``re.findall()``, returns ``list[str]``
-- `CONTEXT.search(pattern, flags=0)` — like ``re.search()``
-- `CONTEXT.lines()` — yields one line at a time (memory-efficient)
+- `CONTEXT.findall(pattern, flags=0)` — regex search across the context
+- `CONTEXT.search(pattern, flags=0)` — regex search (first match)
+- `CONTEXT.lines()` — yields lines (memory-efficient)
 - `CONTEXT.chunk(start, size)` — return a decoded chunk starting at offset
 - `"keyword" in CONTEXT` — substring containment check
+
+### Multi-file CONTEXT (when multiple files are loaded)
+When multiple files are loaded, CONTEXT has additional methods:
+- `CONTEXT.files` — list of filenames (e.g. ``["readme.md", "src/main.py"]``)
+- `CONTEXT.file("name")` — returns the context for a single file (supports
+  the same ``.findall()``, ``.search()``, ``.lines()`` methods)
+- `CONTEXT.findall(pattern)` returns ``list[tuple[str, str]]``: ``(filename, match)``
+- `CONTEXT.lines()` yields ``tuple[str, str]``: ``(filename, line)``
+
+Check for multi-file with ``hasattr(CONTEXT, 'files')``.
 
 ### Functions
 - `llm_query(prompt: str) -> str`: Call a sub-LLM instance to process text. Use this to:
@@ -115,7 +125,16 @@ summary = llm_query(f"Summarize this section:\\n{chunk}")
 print(summary)
 ```
 
-### Pattern 5: Return Final Answer
+### Pattern 5: Multi-file Exploration
+```python
+if hasattr(CONTEXT, 'files'):
+    print(f"Files: {CONTEXT.files}")
+    for fname in CONTEXT.files:
+        f = CONTEXT.file(fname)
+        print(f"{fname}: {len(f):,} bytes")
+```
+
+### Pattern 6: Return Final Answer
 ```python
 FINAL("Based on my analysis: ...")
 ```
@@ -145,12 +164,13 @@ COMPACT_SYSTEM_PROMPT = """You are an AI with access to a CONTEXT variable in a 
 Answer the query by writing Python code to explore CONTEXT.
 
 **Available:**
-- `CONTEXT`: The full document (DON'T print directly, may be memory-mapped)
+- `CONTEXT`: The document (DON'T print directly, may be memory-mapped or multi-file)
   - `CONTEXT[a:b]` — slice, `len(CONTEXT)` — size
-  - `CONTEXT.findall(pattern, flags=0)` — regex search (returns list[str])
-  - `CONTEXT.search(pattern, flags=0)` — regex search (returns Match or None)
-  - `CONTEXT.lines()` — iterate lines without loading the whole file
-  - `CONTEXT.chunk(start, size)` — read a decoded chunk
+  - `CONTEXT.findall(pattern)` — regex search
+  - `CONTEXT.search(pattern)` — first regex match
+  - `CONTEXT.lines()` — iterate lines
+  - `CONTEXT.chunk(start, size)` — decoded chunk
+  - Multi-file: `CONTEXT.files`, `CONTEXT.file("name")`
 - `llm_query(prompt: str) -> str`: Call sub-LLM to analyze text
 - `FINAL(answer: str)`: Return final answer
 - Modules: `re`, `json`, `math`, `collections`, `itertools`
