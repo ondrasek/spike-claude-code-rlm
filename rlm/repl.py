@@ -1,7 +1,8 @@
-"""Sandboxed REPL environment for executing LLM-generated Python code.
+"""REPL environment for executing LLM-generated Python code.
 
-This module provides a restricted Python execution environment where the LLM
-can explore the CONTEXT variable through code while preventing dangerous operations.
+This module provides a Python execution environment where the LLM can explore
+the CONTEXT variable through code. Container-level isolation is expected to be
+provided by the runtime (e.g. a rootless container).
 """
 
 import collections
@@ -24,36 +25,16 @@ class REPLResult:
 
 
 class REPLEnv:
-    """Sandboxed REPL environment for RLM code execution.
+    """REPL environment for RLM code execution.
 
     Provides:
     - CONTEXT variable (the full document)
     - llm_query() function for recursive LLM calls
     - FINAL() and FINAL_VAR() for returning results
     - Pre-imported modules: re, json, math, collections, itertools
-    - Security restrictions to prevent dangerous operations
-    """
 
-    # Patterns that should be blocked for security
-    BLOCKED_PATTERNS = [
-        r"\bimport\s+os\b",
-        r"\bimport\s+sys\b",
-        r"\bimport\s+subprocess\b",
-        r"\b__import__\b",
-        r"\beval\b",
-        r"\bexec\b",
-        r"\bcompile\b",
-        r"\bopen\b",
-        r"\bfile\b",
-        r"\b__builtins__\b",
-        r"\bgetattr\b",
-        r"\bsetattr\b",
-        r"\bdelattr\b",
-        r"\bdir\b",
-        r"\bvars\b",
-        r"\bglobals\b",
-        r"\blocals\b",
-    ]
+    Isolation is delegated to the container runtime.
+    """
 
     def __init__(
         self,
@@ -73,20 +54,6 @@ class REPLEnv:
         self.max_output_length = max_output_length
         self.final_answer: str | None = None
         self.output_buffer: list[str] = []
-
-    def _validate_code(self, code: str) -> tuple[bool, str]:
-        """Validate code for security issues.
-
-        Args:
-            code: Python code to validate
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        for pattern in self.BLOCKED_PATTERNS:
-            if re.search(pattern, code, re.IGNORECASE):
-                return False, f"Security violation: blocked pattern '{pattern}'"
-        return True, ""
 
     def _capture_print(self, *args: Any, **kwargs: Any) -> None:
         """Capture print output to buffer."""
@@ -124,7 +91,7 @@ class REPLEnv:
         pass
 
     def execute(self, code: str) -> REPLResult:
-        """Execute Python code in sandboxed environment.
+        """Execute Python code in the REPL environment.
 
         Args:
             code: Python code to execute
@@ -132,57 +99,26 @@ class REPLEnv:
         Returns:
             REPLResult with output, final answer, and any errors
         """
-        # Validate code for security
-        is_valid, error_msg = self._validate_code(code)
-        if not is_valid:
-            return REPLResult(output="", error=error_msg, success=False)
-
         # Reset output buffer
         self.output_buffer = []
 
-        # Create restricted namespace
+        # Create namespace with RLM helpers and common stdlib modules
         namespace: dict[str, Any] = {
-            # Context and functions
             "CONTEXT": self.context,
             "llm_query": self._llm_query,
             "FINAL": self._final,
             "FINAL_VAR": self._final_var,
-            # Allowed modules
             "re": re,
             "json": json,
             "math": math,
             "collections": collections,
             "itertools": itertools,
-            # Override print
             "print": self._capture_print,
-            # Basic types (safe)
-            "str": str,
-            "int": int,
-            "float": float,
-            "list": list,
-            "dict": dict,
-            "set": set,
-            "tuple": tuple,
-            "bool": bool,
-            "len": len,
-            "range": range,
-            "enumerate": enumerate,
-            "zip": zip,
-            "sorted": sorted,
-            "sum": sum,
-            "min": min,
-            "max": max,
-            "abs": abs,
-            "round": round,
-            "any": any,
-            "all": all,
-            # Prevent access to dangerous builtins
-            "__builtins__": {},
         }
 
         # Execute code
         try:
-            exec(code, namespace)
+            exec(code, namespace)  # noqa: S102
 
             # Check if FINAL_VAR was called
             if self.final_answer is None:

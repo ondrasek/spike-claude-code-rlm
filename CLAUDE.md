@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-RLM (Recursive Language Model) is a Python 3.11+ implementation of the paradigm described in MIT CSAIL research paper [arXiv:2512.24601](https://arxiv.org/pdf/2512.24601). Unlike traditional RAG, RLM treats document context as an external variable in a sandboxed Python REPL, allowing LLMs to programmatically inspect, search, chunk, and recursively process documents that far exceed typical context windows.
+RLM (Recursive Language Model) is a Python 3.11+ implementation of the paradigm described in MIT CSAIL research paper [arXiv:2512.24601](https://arxiv.org/pdf/2512.24601). Unlike traditional RAG, RLM treats document context as an external variable in a Python REPL, allowing LLMs to programmatically inspect, search, chunk, and recursively process documents that far exceed typical context windows. The REPL is designed to run inside a rootless container for isolation.
 
 **Status:** Alpha (v0.1.0)
 **License:** BSD 2-Clause
@@ -35,7 +35,7 @@ spike-claude-code-rlm/
 │   ├── cli.py                  # CLI entry point (uvx rlm / python -m rlm)
 │   ├── rlm.py                  # RLM orchestrator (iteration loop, code extraction)
 │   ├── backends.py             # LLM backend implementations (Anthropic, OpenAI-compat, Callback)
-│   ├── repl.py                 # Sandboxed REPL environment with security restrictions
+│   ├── repl.py                 # REPL environment (container-isolated)
 │   ├── prompts.py              # System prompts (full and compact) for LLM guidance
 │   └── sample_data/
 │       └── large_document.txt  # Bundled sample document for testing
@@ -64,7 +64,7 @@ spike-claude-code-rlm/
 
 ## Architecture
 
-The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Code Extraction -> Sandboxed REPL -> Output back to LLM -> repeat until FINAL()**.
+The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Code Extraction -> REPL -> Output back to LLM -> repeat until FINAL()**.
 
 ### Core Components
 
@@ -73,7 +73,7 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
   - `AnthropicBackend` — Direct Anthropic API (requires `anthropic` package, `ANTHROPIC_API_KEY` env var)
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
   - `CallbackBackend` — Wraps a `Callable[[list[dict], str], str]` for custom integrations
-- **`REPLEnv`** (`rlm/repl.py`): Sandboxed execution environment providing `CONTEXT`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`), and safe builtins. Blocks dangerous patterns (os/sys/subprocess imports, eval, exec, open, getattr, etc.).
+- **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Isolation is delegated to the container runtime.
 - **`prompts.py`** (`rlm/prompts.py`): Two system prompts (`FULL_SYSTEM_PROMPT` at ~120 lines, `COMPACT_SYSTEM_PROMPT` at ~25 lines) that instruct the LLM on the inspect-search-chunk-synthesize strategy.
 - **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend`, `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags.
 
@@ -143,7 +143,7 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 
 - **Strategy:** Multiple LLM backends behind abstract `LLMBackend` ABC
 - **Factory:** `_create_llm_query_fn()` creates closures for recursive LLM calls with depth tracking
-- **Sandbox:** REPL restricts `__builtins__` to `{}` and validates code against `BLOCKED_PATTERNS` before execution
+- **Container isolation:** REPL delegates security to the rootless container runtime
 - **Dataclasses:** `RLMStats`, `RLMResult`, `REPLResult` for clean data structures
 
 ## Important Implementation Details
@@ -158,7 +158,6 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 
 ## Common Pitfalls
 
-- Do not add new imports to `repl.py`'s REPL namespace without also updating `BLOCKED_PATTERNS` to account for security implications
 - The `_extract_code_blocks` regex expects markdown code fences (`` ```python `` or `` ``` ``); changes to code block parsing affect the entire iteration loop
 - `AnthropicBackend` creates a new `AsyncAnthropic` client on every `acompletion` call — this is by design for simplicity but could be optimized
 - The `FINAL_VAR` implementation in `repl.py` is incomplete — `_final_var` is a no-op; the fallback logic checks for `final_` prefixed variables in the namespace instead
@@ -237,4 +236,4 @@ Claude also invokes the skill automatically when asked to analyze a large docume
 
 ## Areas for Contribution
 
-Per CONTRIBUTING.md: additional LLM backends, performance optimizations, error handling improvements, enhanced REPL security, pytest test suite, CI/CD pipeline, documentation, and example use cases.
+Per CONTRIBUTING.md: additional LLM backends, performance optimizations, error handling improvements, pytest test suite, CI/CD pipeline, documentation, and example use cases.

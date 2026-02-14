@@ -7,7 +7,7 @@ allowed-tools: Bash(uv run *), Read, Glob
 
 # RLM - Recursive Language Model
 
-Run the bundled RLM tool to analyze a document by recursively exploring it with LLM-generated Python code in a sandboxed REPL.
+Run the bundled RLM tool to analyze a document by recursively exploring it with LLM-generated Python code in a REPL.
 
 ## How to run
 

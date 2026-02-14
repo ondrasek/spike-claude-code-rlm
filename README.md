@@ -39,7 +39,7 @@ This approach enables processing of documents **far exceeding** typical context 
 │  • CONTEXT variable (holds the massive text)             │
 │  • llm_query(prompt) function for recursive calls        │
 │  • FINAL(answer) / FINAL_VAR(var) for returning results  │
-│  • Sandboxed execution with restricted builtins          │
+│  • Isolation delegated to container runtime               │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -183,7 +183,7 @@ The REPL provides these to the LLM:
 | `FINAL_VAR(var_name)` | function | Set variable as final answer |
 | `re`, `json`, `math`, `collections`, `itertools` | modules | Pre-imported |
 
-**Security:** The REPL blocks dangerous operations (`import os`, `open()`, `__import__`, etc.) via pattern validation and restricted builtins.
+**Isolation:** The REPL is designed to run inside a rootless container. No in-process sandboxing is applied.
 
 ## Project Structure
 
@@ -191,7 +191,7 @@ The REPL provides these to the LLM:
 spike-claude-code-rlm/
 ├── rlm/
 │   ├── __init__.py      # Package exports
-│   ├── repl.py          # Sandboxed REPL (REPLEnv, REPLResult)
+│   ├── repl.py          # REPL environment (REPLEnv, REPLResult)
 │   ├── backends.py      # LLM backends (Anthropic, OpenAI, Callback)
 │   ├── prompts.py       # System prompts for root LLM
 │   └── rlm.py           # Core orchestrator (RLM, RLMResult, RLMStats)
@@ -216,10 +216,10 @@ spike-claude-code-rlm/
 - OpenAI-compatible (Ollama, vLLM, etc.)
 - Custom callback for integration
 
-✅ **Sandboxed Execution**
-- Restricted builtins
-- Pattern-based security validation
-- Safe module imports only
+✅ **Container-Isolated Execution**
+- Designed for rootless container runtimes
+- No in-process sandbox overhead
+- Full Python stdlib available to LLM-generated code
 
 ✅ **Recursive Processing**
 - Configurable recursion depth

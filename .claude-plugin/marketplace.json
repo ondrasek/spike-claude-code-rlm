@@ -10,7 +10,7 @@
     {
       "name": "rlm",
       "source": "./plugin",
-      "description": "Analyze documents far exceeding LLM context windows by recursively exploring them with LLM-generated Python code in a sandboxed REPL.",
+      "description": "Analyze documents far exceeding LLM context windows by recursively exploring them with LLM-generated Python code in a REPL.",
       "version": "0.1.0",
       "author": {
         "name": "Ondrej Krajicek"
