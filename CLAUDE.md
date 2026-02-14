@@ -43,6 +43,15 @@ spike-claude-code-rlm/
 │   └── skills/
 │       └── rlm/
 │           └── SKILL.md        # Claude Code skill for running rlm via /rlm
+├── plugin/                     # Self-contained Claude Code plugin
+│   ├── .claude-plugin/
+│   │   └── plugin.json         # Plugin manifest (name, version, description)
+│   ├── skills/
+│   │   └── rlm/
+│   │       └── SKILL.md        # Plugin skill (uses CLAUDE_PLUGIN_ROOT)
+│   ├── rlm/                    # Bundled Python package source
+│   ├── pyproject.toml          # Build config for uv run from plugin dir
+│   └── requirements.txt        # Runtime dependencies
 ├── demo.py                     # Convenience wrapper (delegates to rlm.cli)
 ├── examples.py                 # 10 example usage scenarios
 ├── pyproject.toml              # Build config (hatchling), dependencies, ruff/mypy settings
@@ -162,15 +171,33 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 |---|---|---|
 | `ANTHROPIC_API_KEY` | For Anthropic backend | Anthropic API authentication key |
 
-## Claude Code Skill
+## Claude Code Integration
 
-A project-level Claude Code skill is defined at `.claude/skills/rlm/SKILL.md`. It registers the `/rlm` slash command, which runs `uvx rlm` to analyze a document. Usage:
+### Project-level skill
+
+A project-level skill at `.claude/skills/rlm/SKILL.md` registers `/rlm` for use within this repository. It runs `uvx rlm` and requires the package to be available via PyPI or a local install.
 
 ```
 /rlm path/to/document.txt What are the main themes?
 ```
 
-Claude can also invoke the skill automatically when a user asks to analyze a large document with RLM. The skill is configured with `allowed-tools` for `Bash(uvx rlm *)`, `Read`, and `Glob`.
+### Distributable plugin
+
+The `plugin/` directory is a self-contained Claude Code plugin that bundles the entire RLM Python package. It can be distributed and installed independently — no PyPI publish required.
+
+**Test locally:**
+```bash
+claude --plugin-dir ./plugin
+```
+Then use `/rlm:rlm` (namespaced) or let Claude invoke it automatically.
+
+**Plugin structure:**
+- `.claude-plugin/plugin.json` — manifest with name `rlm`, version, description
+- `skills/rlm/SKILL.md` — skill that runs `uv run --directory "${CLAUDE_PLUGIN_ROOT}" rlm ...`
+- `rlm/` — bundled Python package source
+- `pyproject.toml` + `requirements.txt` — so `uv run` can build and execute from source
+
+**Keeping the plugin in sync:** When modifying Python source in `rlm/`, remember to also update `plugin/rlm/` (or automate the copy). The plugin bundles a snapshot of the package.
 
 ## Areas for Contribution
 
