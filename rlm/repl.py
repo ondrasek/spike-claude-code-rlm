@@ -8,9 +8,7 @@ provided by the runtime (e.g. a rootless container).
 import collections
 import itertools
 import json
-import logging
 import math
-import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,8 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from .context import CompositeContext, LazyContext, StringContext
-
-logger = logging.getLogger(__name__)
 
 # Restricted set of builtins safe for the REPL sandbox.
 # This prevents LLM-generated code from importing arbitrary modules,
@@ -109,26 +105,6 @@ _SAFE_BUILTINS: dict[str, Any] = {
 }
 
 
-def _check_container_isolation() -> bool:
-    """Check whether the process appears to be running inside a container.
-
-    Returns
-    -------
-    bool
-        True if container indicators are detected.
-    """
-    if os.path.exists("/.dockerenv"):
-        return True
-    try:
-        with open("/proc/1/cgroup") as f:
-            cgroup = f.read()
-        if "docker" in cgroup or "kubepods" in cgroup or "containerd" in cgroup:
-            return True
-    except OSError:
-        pass
-    return False
-
-
 @dataclass
 class REPLResult:
     """Result from REPL execution."""
@@ -151,11 +127,6 @@ class REPLEnv:
     The namespace is preserved across ``execute()`` calls within the same
     ``REPLEnv`` instance, giving true REPL semantics where variables defined
     in one code block are available in subsequent blocks.
-
-    Security note:
-        ``__builtins__`` is restricted to a safe subset. Arbitrary imports,
-        filesystem access, and shell execution are blocked. Full isolation
-        must still be provided by the container runtime.
     """
 
     def __init__(
@@ -181,13 +152,6 @@ class REPLEnv:
         max_output_length : int
             Maximum length of captured output.
         """
-        if not _check_container_isolation():
-            logger.warning(
-                "Container isolation not detected. "
-                "LLM-generated code will execute in the host process. "
-                "Run inside a rootless container for safety."
-            )
-
         if isinstance(context, CompositeContext):
             self.context: LazyContext | StringContext | CompositeContext = context
         elif isinstance(context, list):
