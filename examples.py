@@ -1,15 +1,18 @@
 """Example usage scenarios for RLM.
 
 This file demonstrates various use cases and patterns for working with RLM.
+Each example function can be run independently.
 """
 
+from __future__ import annotations
+
+
 # Example 1: Basic usage with Anthropic
-from rlm import RLM
-from rlm.backends import AnthropicBackend
-
-
 def example_anthropic() -> None:
     """Example using Anthropic's Claude API."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(
         backend,
@@ -32,6 +35,9 @@ def example_anthropic() -> None:
 # Example 2: Using different models for root and recursive calls
 def example_tiered_models() -> None:
     """Example using expensive model for root, cheaper for recursive calls."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(
         backend,
@@ -50,6 +56,7 @@ def example_tiered_models() -> None:
 # Example 3: Local models with Ollama
 def example_ollama() -> None:
     """Example using local models via Ollama."""
+    from rlm import RLM
     from rlm.backends import OpenAICompatibleBackend
 
     backend = OpenAICompatibleBackend(
@@ -69,21 +76,27 @@ def example_ollama() -> None:
 # Example 4: Custom callback integration
 def example_custom_callback() -> None:
     """Example integrating with a custom LLM system."""
+    from rlm import RLM
     from rlm.backends import CallbackBackend
 
     def my_llm_function(messages: list[dict[str, str]], model: str) -> str:
         """Custom function that calls your LLM system.
 
-        Args:
-            messages: Conversation history
-            model: Model identifier
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            Conversation history.
+        model : str
+            Model identifier.
 
-        Returns:
-            LLM response
+        Returns
+        -------
+        str
+            LLM response.
         """
         # Your custom integration here
         # Could call Claude Max, a CLI tool, or any other system
-        pass
+        return "Custom LLM response placeholder"
 
     backend = CallbackBackend(my_llm_function)
     rlm = RLM(backend, model="my-custom-model")
@@ -95,6 +108,9 @@ def example_custom_callback() -> None:
 # Example 5: Processing structured data
 def example_structured_data() -> None:
     """Example processing structured data like logs or JSON."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend, verbose=True)
 
@@ -113,6 +129,9 @@ def example_structured_data() -> None:
 # Example 6: Async usage
 async def example_async() -> None:
     """Example using async completion."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend)
 
@@ -126,6 +145,9 @@ async def example_async() -> None:
 # Example 7: Error handling
 def example_error_handling() -> None:
     """Example demonstrating error handling."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend, max_iterations=5)
 
@@ -149,6 +171,9 @@ def example_code_analysis() -> None:
     """Example analyzing a code repository."""
     from pathlib import Path
 
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend, verbose=True)
 
@@ -171,6 +196,9 @@ def example_code_analysis() -> None:
 # Example 9: Comparing documents
 def example_document_comparison() -> None:
     """Example comparing two large documents."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend)
 
@@ -191,6 +219,9 @@ def example_document_comparison() -> None:
 # Example 10: Research paper analysis
 def example_research_paper() -> None:
     """Example analyzing a research paper."""
+    from rlm import RLM
+    from rlm.backends import AnthropicBackend
+
     backend = AnthropicBackend()
     rlm = RLM(backend, verbose=True)
 

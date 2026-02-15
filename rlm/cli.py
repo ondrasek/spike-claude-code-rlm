@@ -17,19 +17,31 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from .backends import AnthropicBackend, CallbackBackend, OpenAICompatibleBackend
+from .backends import (
+    AnthropicBackend,
+    CallbackBackend,
+    ClaudeCLIBackend,
+    LLMBackend,
+    OpenAICompatibleBackend,
+)
+from .context import CompositeContext
 from .rlm import RLM
 
 
 def _mock_llm_callback(messages: list[dict[str, str]], model: str) -> str:
     """Mock LLM callback for testing without API access.
 
-    Args:
-        messages: List of messages
-        model: Model identifier
+    Parameters
+    ----------
+    messages : list[dict[str, str]]
+        List of messages.
+    model : str
+        Model identifier.
 
-    Returns:
-        Mock response
+    Returns
+    -------
+    str
+        Mock response.
     """
     last_msg = messages[-1]["content"] if messages else ""
 
@@ -53,22 +65,25 @@ print(f"Sample: {sample[:200]}...")
 """
 
 
-def _get_default_context_path() -> Path:
-    """Get path to the bundled sample document.
+def _get_default_context() -> str:
+    """Read the bundled sample document.
 
-    Returns:
-        Path to the sample document
+    Returns
+    -------
+    str
+        Contents of the sample document.
     """
     ref = resources.files("rlm") / "sample_data" / "large_document.txt"
-    with resources.as_file(ref) as path:
-        return Path(path)
+    return ref.read_text(encoding="utf-8")
 
 
 def main() -> int:
     """Main CLI entry point.
 
-    Returns:
-        Exit code
+    Returns
+    -------
+    int
+        Exit code.
     """
     parser = argparse.ArgumentParser(
         prog="rlm",
@@ -76,7 +91,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=["anthropic", "ollama", "callback"],
+        choices=["anthropic", "ollama", "claude", "callback"],
         default="anthropic",
         help="LLM backend to use (default: anthropic)",
     )
@@ -92,7 +107,19 @@ def main() -> int:
     parser.add_argument(
         "--context-file",
         type=Path,
-        help="Path to context file (default: bundled sample document)",
+        action="append",
+        dest="context_files",
+        help="Path to context file (repeatable for multi-file context)",
+    )
+    parser.add_argument(
+        "--context-dir",
+        type=Path,
+        help="Directory of files to use as context (all files recursively)",
+    )
+    parser.add_argument(
+        "--context-glob",
+        default="**/*",
+        help="Glob pattern when using --context-dir (default: '**/*')",
     )
     parser.add_argument(
         "--query",
@@ -116,6 +143,12 @@ def main() -> int:
         help="Maximum REPL iterations (default: 10)",
     )
     parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=4096,
+        help="Maximum tokens per LLM response (default: 4096)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -123,23 +156,48 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Load context
-    context_path = args.context_file or _get_default_context_path()
-
-    if not context_path.exists():
-        print(f"Error: Context file not found: {context_path}", file=sys.stderr)
-        return 1
-
+    # Load context — files are memory-mapped so contexts larger than RAM work.
+    context: str | Path | list[Path] | CompositeContext
     try:
-        context = context_path.read_text()
+        if args.context_dir:
+            context_dir: Path = args.context_dir
+            if not context_dir.is_dir():
+                print(f"Error: Not a directory: {context_dir}", file=sys.stderr)
+                return 1
+            context = CompositeContext.from_directory(context_dir, glob=args.context_glob)
+            print(
+                f"Context: {len(context.files)} files from {context_dir} "
+                f"({len(context):,} bytes total)"
+            )
+        elif args.context_files and len(args.context_files) > 1:
+            for p in args.context_files:
+                if not p.exists():
+                    print(f"Error: Context file not found: {p}", file=sys.stderr)
+                    return 1
+            context = CompositeContext.from_paths(args.context_files)
+            print(
+                f"Context: {len(context.files)} files "
+                f"({len(context):,} bytes total)"
+            )
+        elif args.context_files:
+            context_path: Path = args.context_files[0]
+            if not context_path.exists():
+                print(f"Error: Context file not found: {context_path}", file=sys.stderr)
+                return 1
+            context = context_path
+            file_size = context_path.stat().st_size
+            print(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
+        else:
+            context = _get_default_context()
+            print(f"Loaded context: {len(context):,} characters from bundled sample")
     except Exception as e:
-        print(f"Error reading context file: {e}", file=sys.stderr)
+        print(f"Error loading context: {e}", file=sys.stderr)
         return 1
 
-    print(f"Loaded context: {len(context):,} characters from {context_path}")
     print(f"Query: {args.query}\n")
 
     # Initialize backend
+    backend: LLMBackend
     try:
         if args.backend == "anthropic":
             if not os.getenv("ANTHROPIC_API_KEY"):
@@ -157,6 +215,10 @@ def main() -> int:
                 api_key="ollama",
             )
             print(f"Using Ollama backend with model: {args.model}")
+
+        elif args.backend == "claude":
+            backend = ClaudeCLIBackend()
+            print(f"Using Claude CLI backend with model: {args.model}")
 
         elif args.backend == "callback":
             backend = CallbackBackend(_mock_llm_callback)
@@ -178,6 +240,7 @@ def main() -> int:
         model=args.model,
         recursive_model=args.recursive_model,
         max_iterations=args.max_iterations,
+        max_tokens=args.max_tokens,
         verbose=args.verbose,
         compact_prompt=args.compact,
     )
@@ -221,8 +284,10 @@ def main() -> int:
 def _get_version() -> str:
     """Get the package version.
 
-    Returns:
-        Version string
+    Returns
+    -------
+    str
+        Version string.
     """
     from . import __version__
 

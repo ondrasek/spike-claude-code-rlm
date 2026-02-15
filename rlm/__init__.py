@@ -25,7 +25,16 @@ Example:
     >>> print(result.answer)
 """
 
-from .backends import AnthropicBackend, CallbackBackend, LLMBackend, OpenAICompatibleBackend
+from .backends import (
+    AnthropicBackend,
+    CallbackBackend,
+    ClaudeCLIBackend,
+    CompletionResult,
+    LLMBackend,
+    OpenAICompatibleBackend,
+    TokenUsage,
+)
+from .context import CompositeContext, LazyContext, StringContext
 from .repl import REPLEnv, REPLResult
 from .rlm import RLM, RLMResult, RLMStats
 
@@ -39,6 +48,12 @@ __all__ = [
     "AnthropicBackend",
     "OpenAICompatibleBackend",
     "CallbackBackend",
+    "ClaudeCLIBackend",
+    "CompletionResult",
+    "TokenUsage",
+    "CompositeContext",
+    "LazyContext",
+    "StringContext",
     "REPLEnv",
     "REPLResult",
 ]
