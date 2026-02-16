@@ -1,0 +1,63 @@
+{
+  "name": "rlm DevContainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "args": {
+      "REPO_NAME": "${localWorkspaceFolderBasename}"
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "github.vscode-pull-request-github",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "python.defaultInterpreterPath": "/home/vscode/.pyenv/shims/python",
+        "python.terminal.activateEnvironment": false,
+        "git.openRepositoryInParentFolders": "always"
+      }
+    }
+  },
+
+  "containerEnv": {
+    "PYTHONIOENCODING": "UTF-8"
+  },
+
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+  },
+
+  "postCreateCommand": "/tmp/.devcontainer/postCreate.sh",
+
+  // host-gateway lets containers reach host-local services (e.g. Ollama API).
+  // Safe to remove if you don't use local AI providers.
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+  "updateRemoteUserUID": true,
+
+  "workspaceMount": "",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer,target=/tmp/.devcontainer,type=bind,consistency=cached",
+    "source=${localWorkspaceFolderBasename},target=/workspaces,type=volume"
+  ]
+}

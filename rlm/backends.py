@@ -503,9 +503,12 @@ class ClaudeCLIBackend(LLMBackend):
         cmd: list[str] = [
             self._cmd,
             "-p",
-            "--output-format", "json",
-            "--model", model,
-            "--max-turns", str(self._max_turns),
+            "--output-format",
+            "json",
+            "--model",
+            model,
+            "--max-turns",
+            str(self._max_turns),
             "--no-session-persistence",
         ]
 
@@ -525,9 +528,7 @@ class ClaudeCLIBackend(LLMBackend):
 
         if proc.returncode != 0:
             stderr = proc.stderr.strip()
-            raise RuntimeError(
-                f"claude exited with code {proc.returncode}: {stderr}"
-            )
+            raise RuntimeError(f"claude exited with code {proc.returncode}: {stderr}")
 
         # --output-format json returns a JSON object with a "result" field.
         raw = proc.stdout.strip()

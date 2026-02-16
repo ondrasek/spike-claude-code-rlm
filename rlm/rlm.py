@@ -233,8 +233,7 @@ class RLM:
         # Determine displayable context size.
         if isinstance(context, CompositeContext):
             self._log(
-                f"Context: {len(context.files)} files, "
-                f"{len(context):,} bytes total (composite)"
+                f"Context: {len(context.files)} files, {len(context):,} bytes total (composite)"
             )
         elif isinstance(context, list):
             total = sum(p.stat().st_size for p in context)
@@ -253,9 +252,7 @@ class RLM:
 
             # Get LLM response
             try:
-                result = self.backend.completion(
-                    messages, self.model, max_tokens=self.max_tokens
-                )
+                result = self.backend.completion(messages, self.model, max_tokens=self.max_tokens)
                 response = result.text
                 stats.total_input_tokens += result.usage.input_tokens
                 stats.total_output_tokens += result.usage.output_tokens
@@ -312,9 +309,7 @@ class RLM:
                         all_output.append(exec_result.output)
 
                     if exec_result.final_answer:
-                        self._log(
-                            f"Final answer received: {exec_result.final_answer[:100]}..."
-                        )
+                        self._log(f"Final answer received: {exec_result.final_answer[:100]}...")
                         # Record this iteration
                         history.append(
                             {

@@ -24,9 +24,7 @@ def example_anthropic() -> None:
     with open("large_document.txt") as f:
         context = f.read()
 
-    result = rlm.completion(
-        context=context, query="What are the key insights from this document?"
-    )
+    result = rlm.completion(context=context, query="What are the key insights from this document?")
 
     print(result.answer)
     print(rlm.cost_summary())
@@ -186,9 +184,7 @@ def example_code_analysis() -> None:
 
     context = "\n".join(files)
 
-    result = rlm.completion(
-        context=context, query="What are the main architectural patterns used?"
-    )
+    result = rlm.completion(context=context, query="What are the main architectural patterns used?")
 
     print(result.answer)
 

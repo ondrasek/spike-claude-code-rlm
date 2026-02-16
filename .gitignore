@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Claude Code local settings (not shared)
+.claude/settings.local.json
+.claude/hooks/hook-debug.log

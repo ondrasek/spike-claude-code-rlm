@@ -175,10 +175,7 @@ def main() -> int:
                     print(f"Error: Context file not found: {p}", file=sys.stderr)
                     return 1
             context = CompositeContext.from_paths(args.context_files)
-            print(
-                f"Context: {len(context.files)} files "
-                f"({len(context):,} bytes total)"
-            )
+            print(f"Context: {len(context.files)} files ({len(context):,} bytes total)")
         elif args.context_files:
             context_path: Path = args.context_files[0]
             if not context_path.exists():
