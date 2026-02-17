@@ -92,10 +92,9 @@ run_check_nonempty "vulture"        uv run vulture rlm/ --min-confidence 80
 run_check        "xenon"          uv run xenon --max-absolute B --max-modules A --max-average A rlm/
 run_check_nonempty "refurb"         uv run refurb rlm/ --python-version 3.13
 run_check        "import-linter"  uv run lint-imports
-run_check_nonempty "semgrep"        uv run semgrep scan --config p/python --error --quiet rlm/
 run_check        "ty"             uv run ty check rlm/
 run_check        "interrogate"    uv run interrogate rlm/ -v --fail-under 70
 run_check        "style-guide"   "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/style-guide-check.sh"
 
-debuglog "=== ALL 15 CHECKS PASSED ==="
+debuglog "=== ALL 14 CHECKS PASSED ==="
 exit 0

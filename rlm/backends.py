@@ -103,7 +103,7 @@ class AnthropicBackend(LLMBackend):
             Anthropic API key (defaults to ANTHROPIC_API_KEY env var).
         """
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic
         except ImportError as e:
             raise ImportError(
                 "anthropic package required. Install with: pip install anthropic"
@@ -242,7 +242,7 @@ class OpenAICompatibleBackend(LLMBackend):
             API key (many local servers don't require a real key).
         """
         try:
-            import openai  # type: ignore[import-not-found]
+            import openai
         except ImportError as e:
             raise ImportError("openai package required. Install with: pip install openai") from e
 

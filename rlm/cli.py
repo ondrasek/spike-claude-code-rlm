@@ -54,8 +54,7 @@ mock_answer += "the CONTEXT variable and provide insights based on your query."
 FINAL(mock_answer)
 ```
 """
-    else:
-        return """I'll explore the CONTEXT to answer your query.
+    return """I'll explore the CONTEXT to answer your query.
 
 ```python
 print(f"Context size: {len(CONTEXT):,} characters")
@@ -73,8 +72,102 @@ def _get_default_context() -> str:
     str
         Contents of the sample document.
     """
-    ref = resources.files("rlm") / "sample_data" / "large_document.txt"
-    return ref.read_text(encoding="utf-8")
+    return (resources.files("rlm") / "sample_data" / "large_document.txt").read_text(
+        encoding="utf-8"
+    )
+
+
+def _load_context(args: argparse.Namespace) -> str | Path | CompositeContext:
+    """Load context based on CLI arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments.
+
+    Returns
+    -------
+    str | Path | CompositeContext
+        Loaded context.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a specified context file or directory doesn't exist.
+    NotADirectoryError
+        If --context-dir doesn't point to a directory.
+    """
+    if args.context_dir:
+        context_dir: Path = args.context_dir
+        if not context_dir.is_dir():
+            raise NotADirectoryError(f"Not a directory: {context_dir}")
+        context = CompositeContext.from_directory(context_dir, glob=args.context_glob)
+        print(
+            f"Context: {len(context.files)} files from {context_dir} ({len(context):,} bytes total)"
+        )
+        return context
+
+    if args.context_files and len(args.context_files) > 1:
+        for p in args.context_files:
+            if not p.exists():
+                raise FileNotFoundError(f"Context file not found: {p}")
+        context = CompositeContext.from_paths(args.context_files)
+        print(f"Context: {len(context.files)} files ({len(context):,} bytes total)")
+        return context
+
+    if args.context_files:
+        context_path: Path = args.context_files[0]
+        if not context_path.exists():
+            raise FileNotFoundError(f"Context file not found: {context_path}")
+        file_size = context_path.stat().st_size
+        print(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
+        return context_path
+
+    context_str = _get_default_context()
+    print(f"Loaded context: {len(context_str):,} characters from bundled sample")
+    return context_str
+
+
+def _create_backend(args: argparse.Namespace) -> LLMBackend:
+    """Create LLM backend based on CLI arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments.
+
+    Returns
+    -------
+    LLMBackend
+        Configured backend instance.
+
+    Raises
+    ------
+    ValueError
+        If ANTHROPIC_API_KEY is missing for anthropic backend.
+    """
+    if args.backend == "anthropic":
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+        print(f"Using Anthropic backend with model: {args.model}")
+        return AnthropicBackend()
+
+    if args.backend == "ollama":
+        print(f"Using Ollama backend with model: {args.model}")
+        return OpenAICompatibleBackend(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+        )
+
+    if args.backend == "claude":
+        print(f"Using Claude CLI backend with model: {args.model}")
+        return ClaudeCLIBackend()
+
+    if args.backend == "callback":
+        print("Using mock callback backend")
+        return CallbackBackend(_mock_llm_callback)
+
+    raise ValueError(f"Unknown backend: {args.backend}")
 
 
 def main() -> int:
@@ -157,36 +250,11 @@ def main() -> int:
     args = parser.parse_args()
 
     # Load context — files are memory-mapped so contexts larger than RAM work.
-    context: str | Path | list[Path] | CompositeContext
     try:
-        if args.context_dir:
-            context_dir: Path = args.context_dir
-            if not context_dir.is_dir():
-                print(f"Error: Not a directory: {context_dir}", file=sys.stderr)
-                return 1
-            context = CompositeContext.from_directory(context_dir, glob=args.context_glob)
-            print(
-                f"Context: {len(context.files)} files from {context_dir} "
-                f"({len(context):,} bytes total)"
-            )
-        elif args.context_files and len(args.context_files) > 1:
-            for p in args.context_files:
-                if not p.exists():
-                    print(f"Error: Context file not found: {p}", file=sys.stderr)
-                    return 1
-            context = CompositeContext.from_paths(args.context_files)
-            print(f"Context: {len(context.files)} files ({len(context):,} bytes total)")
-        elif args.context_files:
-            context_path: Path = args.context_files[0]
-            if not context_path.exists():
-                print(f"Error: Context file not found: {context_path}", file=sys.stderr)
-                return 1
-            context = context_path
-            file_size = context_path.stat().st_size
-            print(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
-        else:
-            context = _get_default_context()
-            print(f"Loaded context: {len(context):,} characters from bundled sample")
+        context = _load_context(args)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"Error loading context: {e}", file=sys.stderr)
         return 1
@@ -194,37 +262,11 @@ def main() -> int:
     print(f"Query: {args.query}\n")
 
     # Initialize backend
-    backend: LLMBackend
     try:
-        if args.backend == "anthropic":
-            if not os.getenv("ANTHROPIC_API_KEY"):
-                print(
-                    "Error: ANTHROPIC_API_KEY environment variable not set",
-                    file=sys.stderr,
-                )
-                return 1
-            backend = AnthropicBackend()
-            print(f"Using Anthropic backend with model: {args.model}")
-
-        elif args.backend == "ollama":
-            backend = OpenAICompatibleBackend(
-                base_url="http://localhost:11434/v1",
-                api_key="ollama",
-            )
-            print(f"Using Ollama backend with model: {args.model}")
-
-        elif args.backend == "claude":
-            backend = ClaudeCLIBackend()
-            print(f"Using Claude CLI backend with model: {args.model}")
-
-        elif args.backend == "callback":
-            backend = CallbackBackend(_mock_llm_callback)
-            print("Using mock callback backend")
-
-        else:
-            print(f"Error: Unknown backend: {args.backend}", file=sys.stderr)
-            return 1
-
+        backend = _create_backend(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     except ImportError as e:
         print(f"Error initializing backend: {e}", file=sys.stderr)
         print("\nInstall required dependencies:", file=sys.stderr)

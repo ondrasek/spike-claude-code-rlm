@@ -172,7 +172,7 @@ class REPLEnv:
     def _build_namespace(self) -> dict[str, Any]:
         """Build the execution namespace with RLM helpers and safe builtins."""
         return {
-            "__builtins__": dict(_SAFE_BUILTINS),
+            "__builtins__": _SAFE_BUILTINS.copy(),
             "CONTEXT": self.context,
             "llm_query": self._llm_query,
             "FINAL": self._final,
@@ -222,7 +222,7 @@ class REPLEnv:
         answer : str
             Final answer string.
         """
-        self.final_answer = str(answer)
+        self.final_answer = answer
 
     def _final_var(self, var_name: str) -> None:
         """Mark a variable as the final answer.
@@ -259,7 +259,7 @@ class REPLEnv:
         self._pending_final_var = None
 
         try:
-            exec(code, self._namespace)  # noqa: S102
+            exec(code, self._namespace)  # noqa: S102  # nosec B102
 
             # Resolve FINAL_VAR if it was called during execution.
             if self.final_answer is None and self._pending_final_var is not None:

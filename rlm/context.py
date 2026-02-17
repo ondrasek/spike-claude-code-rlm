@@ -187,7 +187,7 @@ class LazyContext:
             line = self._mm.readline()
             if not line:
                 break
-            yield line.decode(enc, errors="replace").rstrip("\n").rstrip("\r")
+            yield line.decode(enc, errors="replace").rstrip("\n\r")
 
     def chunk(self, start: int, size: int) -> str:
         """Return a decoded chunk of the file.
@@ -318,6 +318,9 @@ class StringContext:
             Substring.
         """
         return self._text[start : start + size]
+
+    def close(self) -> None:
+        """No-op for in-memory context (nothing to release)."""
 
 
 # Type alias for any single-file context wrapper.
@@ -461,8 +464,7 @@ class CompositeContext:
         """Concatenate all sources (use with care for very large contexts)."""
         parts: list[str] = []
         for name, src in self._sources.items():
-            parts.append(f"--- {name} ---")
-            parts.append(str(src))
+            parts.extend((f"--- {name} ---", str(src)))
         return _FILE_SEP.join(parts)
 
     @overload

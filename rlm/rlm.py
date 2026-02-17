@@ -188,6 +188,68 @@ class RLM:
 
         return llm_query
 
+    def _log_context_size(self, context: str | Path | list[Path] | CompositeContext) -> None:
+        """Log context size information.
+
+        Parameters
+        ----------
+        context : str | Path | list[Path] | CompositeContext
+            The context to describe.
+        """
+        if isinstance(context, CompositeContext):
+            self._log(
+                f"Context: {len(context.files)} files, {len(context):,} bytes total (composite)"
+            )
+        elif isinstance(context, list):
+            total = sum(p.stat().st_size for p in context)
+            self._log(f"Context: {len(context)} files, {total:,} bytes total")
+        elif isinstance(context, Path):
+            self._log(f"Context size: {context.stat().st_size:,} bytes (memory-mapped)")
+        else:
+            self._log(f"Context size: {len(context):,} characters")
+
+    def _execute_code_blocks(
+        self,
+        code_blocks: list[str],
+        repl: REPLEnv,
+    ) -> tuple[list[str], str | None]:
+        """Execute code blocks and collect output.
+
+        Parameters
+        ----------
+        code_blocks : list[str]
+            Code blocks to execute.
+        repl : REPLEnv
+            REPL environment.
+
+        Returns
+        -------
+        tuple[list[str], str | None]
+            Tuple of (outputs, final_answer). final_answer is None if not found.
+        """
+        all_output: list[str] = []
+        for i, code in enumerate(code_blocks):
+            self._log(f"Executing code block {i + 1}/{len(code_blocks)}")
+            if self.verbose:
+                print(f"Code:\n{code}\n")
+
+            exec_result = repl.execute(code)
+
+            if not exec_result.success:
+                self._log(f"Execution error: {exec_result.error}")
+                all_output.append(f"[Error in block {i + 1}]: {exec_result.error}")
+                continue
+
+            if exec_result.output:
+                self._log(f"Output: {exec_result.output[:200]}...")
+                all_output.append(exec_result.output)
+
+            if exec_result.final_answer:
+                self._log(f"Final answer received: {exec_result.final_answer[:100]}...")
+                return all_output, exec_result.final_answer
+
+        return all_output, None
+
     def completion(
         self, context: str | Path | list[Path] | CompositeContext, query: str
     ) -> RLMResult:
@@ -229,19 +291,7 @@ class RLM:
         )
 
         self._log(f"Starting RLM completion for query: {query}")
-
-        # Determine displayable context size.
-        if isinstance(context, CompositeContext):
-            self._log(
-                f"Context: {len(context.files)} files, {len(context):,} bytes total (composite)"
-            )
-        elif isinstance(context, list):
-            total = sum(p.stat().st_size for p in context)
-            self._log(f"Context: {len(context)} files, {total:,} bytes total")
-        elif isinstance(context, Path):
-            self._log(f"Context size: {context.stat().st_size:,} bytes (memory-mapped)")
-        else:
-            self._log(f"Context size: {len(context):,} characters")
+        self._log_context_size(context)
 
         # Main iteration loop
         for iteration in range(self.max_iterations):
@@ -291,42 +341,25 @@ class RLM:
                 )
                 continue
 
-            # Execute each code block
-            all_output = []
-            for i, code in enumerate(code_blocks):
-                self._log(f"Executing code block {i + 1}/{len(code_blocks)}")
-                if self.verbose:
-                    print(f"Code:\n{code}\n")
+            # Execute code blocks
+            all_output, final_answer = self._execute_code_blocks(code_blocks, repl)
 
-                exec_result = repl.execute(code)
-
-                if not exec_result.success:
-                    self._log(f"Execution error: {exec_result.error}")
-                    all_output.append(f"[Error in block {i + 1}]: {exec_result.error}")
-                else:
-                    if exec_result.output:
-                        self._log(f"Output: {exec_result.output[:200]}...")
-                        all_output.append(exec_result.output)
-
-                    if exec_result.final_answer:
-                        self._log(f"Final answer received: {exec_result.final_answer[:100]}...")
-                        # Record this iteration
-                        history.append(
-                            {
-                                "iteration": iteration + 1,
-                                "response": response,
-                                "code": code_blocks,
-                                "output": "\n---\n".join(all_output),
-                                "final_answer": exec_result.final_answer,
-                            }
-                        )
-
-                        return RLMResult(
-                            answer=exec_result.final_answer,
-                            stats=stats,
-                            history=history,
-                            success=True,
-                        )
+            if final_answer:
+                history.append(
+                    {
+                        "iteration": iteration + 1,
+                        "response": response,
+                        "code": code_blocks,
+                        "output": "\n---\n".join(all_output),
+                        "final_answer": final_answer,
+                    }
+                )
+                return RLMResult(
+                    answer=final_answer,
+                    stats=stats,
+                    history=history,
+                    success=True,
+                )
 
             # Record iteration
             history.append(

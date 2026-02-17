@@ -76,7 +76,7 @@ fi
 # Install dependencies and pre-commit hooks
 echo "Installing dependencies..."
 cd $workingCopy
-uv sync
+uv sync --extra dev
 uv run pre-commit install
 echo "Dependencies and pre-commit hooks installed"
 
