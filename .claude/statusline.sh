@@ -300,15 +300,18 @@ SEVEN_DAY_PCT=0; SEVEN_DAY_RESET=""
 EXTRA_ENABLED=false; EXTRA_PCT=0; EXTRA_USED="0"; EXTRA_LIMIT="0"
 
 if [ -f "$USAGE_CACHE" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
+    # Credits-to-dollars: API returns values in credits (20 credits = $1 USD)
     parsed=$(jq -r '[
         ((.five_hour.utilization // 0) | round),
         (.five_hour.resets_at // ""),
         ((.seven_day.utilization // 0) | round),
         (.seven_day.resets_at // ""),
         (.extra_usage.is_enabled // false),
-        ((.extra_usage.utilization // 0) | round),
-        ((.extra_usage.used_credits // 0) * 100 | round | . / 100),
-        ((.extra_usage.monthly_limit // 0) * 100 | round | . / 100)
+        (.extra_usage | if .utilization then (.utilization | round)
+            elif (.monthly_limit // 0) > 0 then ((.used_credits // 0) / .monthly_limit * 100 | round)
+            else 0 end),
+        ((.extra_usage.used_credits // 0) / 20 * 100 | round | . / 100),
+        ((.extra_usage.monthly_limit // 0) / 20 * 100 | round | . / 100)
     ] | @tsv' "$USAGE_CACHE" 2>/dev/null) || parsed=""
     if [ -n "$parsed" ]; then
         IFS=$'\t' read -r FIVE_HOUR_PCT FIVE_HOUR_RESET SEVEN_DAY_PCT SEVEN_DAY_RESET \
