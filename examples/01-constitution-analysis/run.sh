@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BACKEND="${1:-ollama}"
+MODEL="${2:-qwen2.5-coder:32b}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
@@ -20,11 +21,13 @@ fi
 
 echo "=== Example 1: US Constitution Analysis ==="
 echo "Backend: $BACKEND"
+echo "Model: $MODEL"
 echo ""
 
 echo "--- Query 1: Amendment Summary ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-file "$SCRIPT_DIR/constitution.txt" \
     --query "List all 27 amendments with ratification years and one-sentence summaries." \
     --verbose
@@ -33,6 +36,7 @@ echo ""
 echo "--- Query 2: Voting Rights ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-file "$SCRIPT_DIR/constitution.txt" \
     --query "Which amendments deal with voting rights? How has the right to vote expanded over time?" \
     --verbose
@@ -41,6 +45,7 @@ echo ""
 echo "--- Query 3: Checks and Balances ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-file "$SCRIPT_DIR/constitution.txt" \
     --query "Identify the checks and balances described in Articles I, II, and III." \
     --verbose

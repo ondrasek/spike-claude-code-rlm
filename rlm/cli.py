@@ -128,6 +128,27 @@ def _load_context(args: argparse.Namespace) -> str | Path | CompositeContext:
     return context_str
 
 
+def _resolve_ollama_url(base_url_override: str | None) -> str:
+    """Resolve the Ollama base URL from CLI flag or environment.
+
+    Parameters
+    ----------
+    base_url_override : str | None
+        Explicit ``--base-url`` value (highest priority).
+
+    Returns
+    -------
+    str
+        Fully-qualified OpenAI-compatible base URL.
+    """
+    if base_url_override:
+        return base_url_override
+    ollama_host = os.getenv("OLLAMA_HOST", "localhost:11434")
+    if not ollama_host.startswith("http"):
+        ollama_host = f"http://{ollama_host}"
+    return f"{ollama_host.rstrip('/')}/v1"
+
+
 def _create_backend(args: argparse.Namespace) -> LLMBackend:
     """Create LLM backend based on CLI arguments.
 
@@ -153,11 +174,10 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
         return AnthropicBackend()
 
     if args.backend == "ollama":
+        base_url = _resolve_ollama_url(args.base_url)
         print(f"Using Ollama backend with model: {args.model}")
-        return OpenAICompatibleBackend(
-            base_url="http://localhost:11434/v1",
-            api_key="ollama",
-        )
+        print(f"  Base URL: {base_url}")
+        return OpenAICompatibleBackend(base_url=base_url, api_key="ollama")
 
     if args.backend == "claude":
         print(f"Using Claude CLI backend with model: {args.model}")
@@ -168,6 +188,56 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
         return CallbackBackend(_mock_llm_callback)
 
     raise ValueError(f"Unknown backend: {args.backend}")
+
+
+def _run_completion(rlm: RLM, context: str | Path | CompositeContext, query: str) -> int:
+    """Execute the RLM completion loop and print results.
+
+    Parameters
+    ----------
+    rlm : RLM
+        Configured RLM instance.
+    context : str | Path | CompositeContext
+        Loaded context.
+    query : str
+        User query.
+
+    Returns
+    -------
+    int
+        Exit code.
+    """
+    print("=" * 80)
+    print("Starting RLM completion...")
+    print("=" * 80 + "\n")
+
+    try:
+        result = rlm.completion(context=context, query=query)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user", file=sys.stderr)
+        return 130
+    except Exception as e:
+        print(f"\nError during completion: {e}", file=sys.stderr)
+        import traceback
+
+        traceback.print_exc()
+        return 1
+
+    if not result.success:
+        print(f"\nError: {result.error}", file=sys.stderr)
+        return 1
+
+    print("\n" + "=" * 80)
+    print("FINAL ANSWER:")
+    print("=" * 80)
+    print(result.answer)
+    print("\n" + "=" * 80)
+    print("STATISTICS:")
+    print("=" * 80)
+    stats = rlm.cost_summary()
+    for key, value in stats.items():
+        print(f"  {key}: {value}")
+    return 0
 
 
 def main() -> int:
@@ -192,6 +262,10 @@ def main() -> int:
         "--model",
         default="claude-sonnet-4-20250514",
         help="Model identifier (default: claude-sonnet-4-20250514)",
+    )
+    parser.add_argument(
+        "--base-url",
+        help="Base URL for OpenAI-compatible backends (overrides OLLAMA_HOST env var)",
     )
     parser.add_argument(
         "--recursive-model",
@@ -284,40 +358,7 @@ def main() -> int:
         compact_prompt=args.compact,
     )
 
-    # Run completion
-    print("=" * 80)
-    print("Starting RLM completion...")
-    print("=" * 80 + "\n")
-
-    try:
-        result = rlm.completion(context=context, query=args.query)
-
-        if result.success:
-            print("\n" + "=" * 80)
-            print("FINAL ANSWER:")
-            print("=" * 80)
-            print(result.answer)
-            print("\n" + "=" * 80)
-            print("STATISTICS:")
-            print("=" * 80)
-            stats = rlm.cost_summary()
-            for key, value in stats.items():
-                print(f"  {key}: {value}")
-            return 0
-        else:
-            print(f"\nError: {result.error}", file=sys.stderr)
-            return 1
-
-    except KeyboardInterrupt:
-        print("\n\nInterrupted by user", file=sys.stderr)
-        return 130
-
-    except Exception as e:
-        print(f"\nError during completion: {e}", file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
-        return 1
+    return _run_completion(rlm, context, args.query)
 
 
 def _get_version() -> str:

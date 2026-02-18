@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BACKEND="${1:-ollama}"
+MODEL="${2:-qwen2.5-coder:32b}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
@@ -22,12 +23,14 @@ QUERY="Perform an architecture review of this Python package: module dependency 
 
 echo "=== Example 3: Codebase Architecture Audit ==="
 echo "Backend: $BACKEND"
+echo "Model: $MODEL"
 echo "Target: $REPO_ROOT/rlm"
 echo ""
 
 echo "--- Pass 1: Full System Prompt ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-dir "$REPO_ROOT/rlm" \
     --context-glob "**/*.py" \
     --query "$QUERY" \
@@ -37,6 +40,7 @@ echo ""
 echo "--- Pass 2: Compact System Prompt ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-dir "$REPO_ROOT/rlm" \
     --context-glob "**/*.py" \
     --query "$QUERY" \

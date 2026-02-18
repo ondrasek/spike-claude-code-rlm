@@ -19,11 +19,14 @@ a real LLM through RLM's REPL pipeline.
 ## Usage
 
 ```bash
-# Default: Ollama
+# Default: Ollama with qwen2.5-coder:32b
 bash run.sh
 
+# Specify a different model
+bash run.sh ollama llama3.2
+
 # With Anthropic
-ANTHROPIC_API_KEY=sk-... bash run.sh anthropic
+ANTHROPIC_API_KEY=sk-... bash run.sh anthropic claude-sonnet-4-20250514
 ```
 
 ## Features Demonstrated

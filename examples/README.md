@@ -21,24 +21,44 @@ REPL — no mocks or fake callbacks.
 ## Quick Start
 
 ```bash
-# Default: Ollama (requires a running Ollama server)
+# Default: Ollama with qwen2.5-coder:32b
 bash examples/01-constitution-analysis/run.sh
 
+# Specify a different model
+bash examples/01-constitution-analysis/run.sh ollama llama3.2
+
 # With Anthropic
-ANTHROPIC_API_KEY=sk-... bash examples/01-constitution-analysis/run.sh anthropic
+ANTHROPIC_API_KEY=sk-... bash examples/01-constitution-analysis/run.sh anthropic claude-sonnet-4-20250514
 ```
 
 ## Backends
 
-All examples default to `ollama`. Pass a different backend as the first argument:
+All examples default to `ollama`. Pass a different backend as the first argument
+and an optional model as the second:
 
 ```bash
-bash run.sh              # Ollama (default)
-bash run.sh ollama       # Ollama (explicit)
-bash run.sh anthropic    # Anthropic (requires ANTHROPIC_API_KEY)
+bash run.sh                              # Ollama with qwen2.5-coder:32b (default)
+bash run.sh ollama llama3.2              # Ollama with a different model
+bash run.sh anthropic claude-sonnet-4-20250514  # Anthropic
 ```
 
 | Backend | Requires |
 |---------|----------|
-| `ollama` (default) | Running Ollama server with a model pulled (e.g. `ollama pull llama3.2`) |
+| `ollama` (default) | Running Ollama server with a model pulled (default: `qwen2.5-coder:32b`) |
 | `anthropic` | `ANTHROPIC_API_KEY` environment variable |
+
+## Ollama Host Configuration
+
+The CLI reads the `OLLAMA_HOST` environment variable to locate the Ollama server.
+The devcontainer sets this to `host.docker.internal:11434` automatically. Override
+it if your Ollama server runs elsewhere:
+
+```bash
+OLLAMA_HOST=myserver:11434 bash run.sh
+```
+
+You can also use `--base-url` for full control:
+
+```bash
+bash run.sh  # then pass --base-url manually via RLM_CMD if needed
+```

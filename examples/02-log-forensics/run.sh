@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BACKEND="${1:-ollama}"
+MODEL="${2:-qwen2.5-coder:32b}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
@@ -20,6 +21,7 @@ fi
 
 echo "=== Example 2: Server Log Forensics ==="
 echo "Backend: $BACKEND"
+echo "Model: $MODEL"
 echo ""
 
 # Generate synthetic logs
@@ -31,6 +33,7 @@ echo ""
 echo "--- Security Analysis ---"
 $RLM_CMD \
     --backend "$BACKEND" \
+    --model "$MODEL" \
     --context-file "$SCRIPT_DIR/access.log" \
     --query "Analyze these server access logs for security incidents. Identify suspicious IPs, attack patterns, timeline of events, and severity assessment." \
     --max-iterations 10 \

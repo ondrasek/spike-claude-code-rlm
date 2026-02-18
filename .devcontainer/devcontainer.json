@@ -34,7 +34,8 @@
   },
 
   "containerEnv": {
-    "PYTHONIOENCODING": "UTF-8"
+    "PYTHONIOENCODING": "UTF-8",
+    "OLLAMA_HOST": "host.docker.internal:11434"
   },
 
   "remoteEnv": {
