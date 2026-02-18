@@ -5,16 +5,19 @@ BACKEND="${1:-callback}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
-# Use local repo if available, otherwise fall back to uvx
-if [ -f "$REPO_ROOT/pyproject.toml" ]; then
-    RLM_BASE="uv run --directory $REPO_ROOT rlm"
-elif [ "$BACKEND" = "ollama" ]; then
-    RLM_BASE="uvx --with openai rlm"
-else
-    RLM_BASE="uvx rlm"
+# callback mode uses run.py with smart analysis callbacks
+if [ "$BACKEND" = "callback" ]; then
+    exec uv run --directory "$REPO_ROOT" python "$SCRIPT_DIR/run.py" callback
 fi
 
-RLM_CMD="$RLM_BASE"
+# Real LLM backends use the CLI
+if [ -f "$REPO_ROOT/pyproject.toml" ]; then
+    RLM_CMD="uv run --directory $REPO_ROOT rlm"
+elif [ "$BACKEND" = "ollama" ]; then
+    RLM_CMD="uvx --with openai rlm"
+else
+    RLM_CMD="uvx rlm"
+fi
 
 echo "=== Example 2: Server Log Forensics ==="
 echo "Backend: $BACKEND"
