@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BACKEND="${1:-callback}"
+BACKEND="${1:-ollama}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
-# callback mode uses run.py with smart analysis callbacks
-if [ "$BACKEND" = "callback" ]; then
-    exec uv run --directory "$REPO_ROOT" python "$SCRIPT_DIR/run.py" callback
-fi
-
-# Real LLM backends use the CLI
+# Build the rlm command based on backend
 if [ -f "$REPO_ROOT/pyproject.toml" ]; then
-    RLM_CMD="uv run --directory $REPO_ROOT rlm"
+    if [ "$BACKEND" = "ollama" ]; then
+        RLM_CMD="uv run --directory $REPO_ROOT --with openai rlm"
+    else
+        RLM_CMD="uv run --directory $REPO_ROOT rlm"
+    fi
 elif [ "$BACKEND" = "ollama" ]; then
     RLM_CMD="uvx --with openai rlm"
 else

@@ -1,13 +1,12 @@
 # Example 2: Server Log Forensics
 
-Analyze synthetic Apache access logs to detect security incidents.
-Works out of the box — no API key needed.
+Analyze synthetic Apache access logs to detect security incidents using
+a real LLM through RLM's REPL pipeline.
 
 ## What It Does
 
 1. Generates ~1000 lines of realistic Apache-style access logs with injected anomalies
-2. Feeds the logs to RLM for security analysis
-3. Produces a detailed incident report with severity ratings
+2. Feeds the logs to RLM for LLM-driven security analysis
 
 ### Injected Anomalies
 
@@ -20,13 +19,10 @@ Works out of the box — no API key needed.
 ## Usage
 
 ```bash
-# No API key needed — uses smart analysis callbacks
+# Default: Ollama
 bash run.sh
 
-# Or run the Python script directly
-uv run python run.py
-
-# With Anthropic for richer LLM-driven analysis
+# With Anthropic
 ANTHROPIC_API_KEY=sk-... bash run.sh anthropic
 ```
 
@@ -34,10 +30,9 @@ ANTHROPIC_API_KEY=sk-... bash run.sh anthropic
 
 - `--max-iterations` for extended analysis
 - Structured data processing in the REPL
-- Pattern matching via the pre-imported `re` and `collections` modules
+- Pattern matching via the pre-imported `re` module
 
 ## Files
 
 - `generate_logs.py` — Deterministic log generator (seeded RNG, stdlib only)
-- `run.py` — Python script with smart callbacks for real security analysis
-- `run.sh` — Shell wrapper
+- `run.sh` — Generates logs then runs RLM analysis

@@ -1,29 +1,25 @@
 # Example 3: Codebase Architecture Audit
 
 RLM auditing its own source code — a dogfooding example using multi-file
-context. Works out of the box — no API key needed.
+context and a real LLM.
 
 ## What It Does
 
-Points RLM at its own `rlm/` package and produces a structured architecture
-report covering:
-
-- Module structure (files, line counts, classes, functions)
-- Internal dependency graph
-- Design patterns detected (Strategy, Factory, ABC, etc.)
+Points RLM at its own `rlm/` package and asks for an architecture review covering:
+- Module dependency graph
+- Design patterns used
 - Public API surface
 - Potential improvements
+
+Runs twice: once with the full system prompt and once with `--compact` for comparison.
 
 ## Usage
 
 ```bash
-# No API key needed — uses smart analysis callbacks
+# Default: Ollama
 bash run.sh
 
-# Or run the Python script directly
-uv run python run.py
-
-# With Anthropic for richer LLM-driven analysis
+# With Anthropic
 ANTHROPIC_API_KEY=sk-... bash run.sh anthropic
 ```
 
@@ -36,6 +32,4 @@ ANTHROPIC_API_KEY=sk-... bash run.sh anthropic
 
 ## Files
 
-- `run.py` — Python script with smart callbacks for real architecture analysis
-- `run.sh` — Shell wrapper (callback delegates to `run.py`, real backends use CLI
-  with two passes: full prompt vs. compact)
+- `run.sh` — Runs two audit passes (full prompt vs. compact)
