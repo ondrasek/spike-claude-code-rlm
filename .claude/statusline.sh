@@ -219,14 +219,25 @@ TOTAL_FMT=$(format_tokens "$CTX_SIZE")
 USED_COMMA=$(format_number "$CURRENT_TOKENS")
 REMAIN_COMMA=$(format_number "$REMAIN_TOKENS")
 
-# --- 8. Thinking status ---
+# --- 8. Thinking status (respects settings precedence) ---
 
 THINKING="off"
 THINKING_COLOR="$C_DIM"
-if [ -f "$HOME/.claude/settings.json" ]; then
-    thinking_val=$(jq -r '.alwaysThinkingEnabled // false' "$HOME/.claude/settings.json" 2>/dev/null)
-    [ "$thinking_val" = "true" ] && THINKING="on" && THINKING_COLOR="$C_ORANGE"
-fi
+# Check settings files in precedence order: project-local > project-shared > user-global
+for settings_file in \
+    "$PROJECT_DIR/.claude/settings.local.json" \
+    "$PROJECT_DIR/.claude/settings.json" \
+    "$HOME/.claude/settings.json"; do
+    [ -f "$settings_file" ] || continue
+    thinking_val=$(jq -r '.alwaysThinkingEnabled // empty' "$settings_file" 2>/dev/null)
+    if [ "$thinking_val" = "true" ]; then
+        THINKING="on"
+        THINKING_COLOR="$C_ORANGE"
+        break
+    elif [ "$thinking_val" = "false" ]; then
+        break  # Explicit disable at higher-priority level stops search
+    fi
+done
 if [ -n "$MAX_THINKING_TOKENS" ] && [ "$MAX_THINKING_TOKENS" != "0" ]; then
     THINKING="on"
     THINKING_COLOR="$C_ORANGE"
@@ -296,11 +307,11 @@ if [ -f "$USAGE_CACHE" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
         (.seven_day.resets_at // ""),
         (.extra_usage.is_enabled // false),
         ((.extra_usage.utilization // 0) | round),
-        ((.extra_usage.used_credits // 0) / 100 * 100 | round / 100),
-        ((.extra_usage.monthly_limit // 0) / 100 * 100 | round / 100)
+        ((.extra_usage.used_credits // 0) * 100 | round | . / 100),
+        ((.extra_usage.monthly_limit // 0) * 100 | round | . / 100)
     ] | @tsv' "$USAGE_CACHE" 2>/dev/null) || parsed=""
     if [ -n "$parsed" ]; then
-        read -r FIVE_HOUR_PCT FIVE_HOUR_RESET SEVEN_DAY_PCT SEVEN_DAY_RESET \
+        IFS=$'\t' read -r FIVE_HOUR_PCT FIVE_HOUR_RESET SEVEN_DAY_PCT SEVEN_DAY_RESET \
             EXTRA_ENABLED EXTRA_PCT EXTRA_USED EXTRA_LIMIT <<< "$parsed"
         FIVE_HOUR_PCT="${FIVE_HOUR_PCT:-0}"
         SEVEN_DAY_PCT="${SEVEN_DAY_PCT:-0}"
@@ -373,8 +384,10 @@ if [ "$HAVE_USAGE" = true ]; then
 
     if [ "$EXTRA_ENABLED" = "true" ]; then
         extra_bar=$(build_bar "$EXTRA_PCT" "$bar_width")
+        extra_used_fmt=$(printf '%.2f' "$EXTRA_USED" 2>/dev/null || printf '%s' "$EXTRA_USED")
+        extra_limit_fmt=$(printf '%.2f' "$EXTRA_LIMIT" 2>/dev/null || printf '%s' "$EXTRA_LIMIT")
         line2="${line2}${sep}"
-        line2="${line2}${C_WHITE}extra:${C_RESET} ${extra_bar} ${C_CYAN}\$${EXTRA_USED}/\$${EXTRA_LIMIT}${C_RESET}"
+        line2="${line2}${C_WHITE}extra:${C_RESET} ${extra_bar} ${C_CYAN}\$${extra_used_fmt}/\$${extra_limit_fmt}${C_RESET}"
     fi
 
     printf '\n%s' "$line2"
