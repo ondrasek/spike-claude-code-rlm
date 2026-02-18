@@ -298,6 +298,7 @@ fi
 FIVE_HOUR_PCT=0; FIVE_HOUR_RESET=""
 SEVEN_DAY_PCT=0; SEVEN_DAY_RESET=""
 EXTRA_ENABLED=false; EXTRA_PCT=0; EXTRA_USED="0"; EXTRA_LIMIT="0"
+EXTRA_USED_RAW="0"; EXTRA_LIMIT_RAW="0"
 
 if [ -f "$USAGE_CACHE" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     # Credits-to-dollars: API returns values in credits (20 credits = $1 USD)
@@ -311,11 +312,14 @@ if [ -f "$USAGE_CACHE" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
             elif (.monthly_limit // 0) > 0 then ((.used_credits // 0) / .monthly_limit * 100 | round)
             else 0 end),
         ((.extra_usage.used_credits // 0) / 20 * 100 | round | . / 100),
-        ((.extra_usage.monthly_limit // 0) / 20 * 100 | round | . / 100)
+        ((.extra_usage.monthly_limit // 0) / 20 * 100 | round | . / 100),
+        (.extra_usage.used_credits // 0),
+        (.extra_usage.monthly_limit // 0)
     ] | @tsv' "$USAGE_CACHE" 2>/dev/null) || parsed=""
     if [ -n "$parsed" ]; then
         IFS=$'\t' read -r FIVE_HOUR_PCT FIVE_HOUR_RESET SEVEN_DAY_PCT SEVEN_DAY_RESET \
-            EXTRA_ENABLED EXTRA_PCT EXTRA_USED EXTRA_LIMIT <<< "$parsed"
+            EXTRA_ENABLED EXTRA_PCT EXTRA_USED EXTRA_LIMIT \
+            EXTRA_USED_RAW EXTRA_LIMIT_RAW <<< "$parsed"
         FIVE_HOUR_PCT="${FIVE_HOUR_PCT:-0}"
         SEVEN_DAY_PCT="${SEVEN_DAY_PCT:-0}"
         EXTRA_PCT="${EXTRA_PCT:-0}"
@@ -391,6 +395,7 @@ if [ "$HAVE_USAGE" = true ]; then
         extra_limit_fmt=$(printf '%.2f' "$EXTRA_LIMIT" 2>/dev/null || printf '%s' "$EXTRA_LIMIT")
         line2="${line2}${sep}"
         line2="${line2}${C_WHITE}extra:${C_RESET} ${extra_bar} ${C_CYAN}\$${extra_used_fmt}/\$${extra_limit_fmt}${C_RESET}"
+        line2="${line2} ${C_DIM}(${EXTRA_USED_RAW}/${EXTRA_LIMIT_RAW} credits)${C_RESET}"
     fi
 
     printf '\n%s' "$line2"
