@@ -1000,6 +1000,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "openai" },
 ]
 
 [package.optional-dependencies]
@@ -1010,7 +1011,6 @@ dev = [
     { name = "import-linter" },
     { name = "interrogate" },
     { name = "mypy" },
-    { name = "openai" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -1020,9 +1020,6 @@ dev = [
     { name = "ty" },
     { name = "vulture" },
     { name = "xenon" },
-]
-ollama = [
-    { name = "openai" },
 ]
 
 [package.metadata]
@@ -1034,8 +1031,7 @@ requires-dist = [
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "interrogate", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
-    { name = "openai", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "openai", marker = "extra == 'ollama'", specifier = ">=1.0.0" },
+    { name = "openai", specifier = ">=1.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
@@ -1046,7 +1042,7 @@ requires-dist = [
     { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.10" },
     { name = "xenon", marker = "extra == 'dev'", specifier = ">=0.9.0" },
 ]
-provides-extras = ["ollama", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "ruff"
