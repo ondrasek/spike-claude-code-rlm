@@ -350,9 +350,10 @@ class CompositeContext:
     """
 
     def __init__(self, sources: dict[str, SingleContext]) -> None:
+        self._sources: dict[str, SingleContext] = {}
         if not sources:
             raise ValueError("CompositeContext requires at least one source")
-        self._sources: dict[str, SingleContext] = sources
+        self._sources = sources
 
     # ------------------------------------------------------------------
     # Factories
