@@ -10,10 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
+
 from .backends import LLMBackend
 from .context import CompositeContext
 from .prompts import get_system_prompt, get_user_prompt
 from .repl import REPLEnv
+
+_LOG_PREFIX = click.style("[RLM]", fg="yellow", bold=True)
 
 
 @dataclass
@@ -95,7 +99,7 @@ class RLM:
             Message to log.
         """
         if self.verbose:
-            print(f"[RLM] {message}")
+            click.echo(f"{_LOG_PREFIX} {message}")
 
     @staticmethod
     def _extract_code_blocks(text: str) -> list[str]:
@@ -231,7 +235,8 @@ class RLM:
         for i, code in enumerate(code_blocks):
             self._log(f"Executing code block {i + 1}/{len(code_blocks)}")
             if self.verbose:
-                print(f"Code:\n{code}\n")
+                click.echo(click.style("Code:", fg="cyan"))
+                click.echo(code)
 
             exec_result = repl.execute(code)
 
@@ -292,13 +297,24 @@ class RLM:
 
         self._log(f"Starting RLM completion for query: {query}")
         self._log_context_size(context)
+        self._log(f"Model: {self.model} | Recursive model: {self.recursive_model}")
+        self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
+        self._log(f"Compact prompt: {self.compact_prompt}")
+        system_prompt = get_system_prompt(self.compact_prompt)
+        self._log(f"System prompt length: {len(system_prompt):,} chars")
 
         # Main iteration loop
         for iteration in range(self.max_iterations):
             stats.iterations = iteration + 1
             stats.llm_calls += 1
 
-            self._log(f"\n=== Iteration {iteration + 1}/{self.max_iterations} ===")
+            iter_label = click.style(
+                f"ITERATION {iteration + 1}/{self.max_iterations}",
+                bold=True,
+                fg="magenta",
+            )
+            self._log(f"\n\U0001f504 {iter_label}")
+            self._log(f"Conversation messages: {len(messages)}")
 
             # Get LLM response
             try:
@@ -306,7 +322,10 @@ class RLM:
                 response = result.text
                 stats.total_input_tokens += result.usage.input_tokens
                 stats.total_output_tokens += result.usage.output_tokens
-                self._log(f"LLM response length: {len(response)}")
+                self._log(
+                    f"LLM response: {len(response)} chars "
+                    f"(in={result.usage.input_tokens} out={result.usage.output_tokens} tokens)"
+                )
 
             except Exception as e:
                 error_msg = f"LLM call failed: {e!s}"
@@ -326,13 +345,18 @@ class RLM:
             code_blocks = self._extract_code_blocks(response)
 
             if not code_blocks:
-                self._log("No code blocks found in response")
+                self._log("No python code blocks found in LLM response")
+                if self.verbose:
+                    preview = response[:300].replace("\n", "\n  ")
+                    self._log(f"Response preview:\n  {preview}")
 
                 # Check if LLM provided a direct answer
                 if "FINAL" in response or repl.final_answer:
+                    self._log("FINAL detected in response text, ending loop")
                     break
 
                 # Prompt for code
+                self._log("Prompting LLM to provide Python code")
                 messages.append(
                     {
                         "role": "user",
@@ -342,6 +366,7 @@ class RLM:
                 continue
 
             # Execute code blocks
+            self._log(f"Found {len(code_blocks)} python code block(s)")
             all_output, final_answer = self._execute_code_blocks(code_blocks, repl)
 
             if final_answer:
@@ -373,10 +398,11 @@ class RLM:
 
             # Provide output back to LLM
             output_msg = "\n---\n".join(all_output) if all_output else "(no output)"
+            self._log(f"Feeding {len(output_msg):,} chars of output back to LLM")
             messages.append({"role": "user", "content": f"Output:\n{output_msg}"})
 
         # Max iterations reached without final answer
-        self._log("Max iterations reached without final answer")
+        self._log(f"Max iterations ({self.max_iterations}) reached without FINAL() call")
         return RLMResult(
             answer="",
             stats=stats,

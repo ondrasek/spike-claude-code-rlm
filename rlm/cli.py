@@ -13,9 +13,10 @@ Usage:
 
 import argparse
 import os
-import sys
 from importlib import resources
 from pathlib import Path
+
+import click
 
 from .backends import (
     AnthropicBackend,
@@ -102,7 +103,7 @@ def _load_context(args: argparse.Namespace) -> str | Path | CompositeContext:
         if not context_dir.is_dir():
             raise NotADirectoryError(f"Not a directory: {context_dir}")
         context = CompositeContext.from_directory(context_dir, glob=args.context_glob)
-        print(
+        click.echo(
             f"Context: {len(context.files)} files from {context_dir} ({len(context):,} bytes total)"
         )
         return context
@@ -112,7 +113,7 @@ def _load_context(args: argparse.Namespace) -> str | Path | CompositeContext:
             if not p.exists():
                 raise FileNotFoundError(f"Context file not found: {p}")
         context = CompositeContext.from_paths(args.context_files)
-        print(f"Context: {len(context.files)} files ({len(context):,} bytes total)")
+        click.echo(f"Context: {len(context.files)} files ({len(context):,} bytes total)")
         return context
 
     if args.context_files:
@@ -120,11 +121,11 @@ def _load_context(args: argparse.Namespace) -> str | Path | CompositeContext:
         if not context_path.exists():
             raise FileNotFoundError(f"Context file not found: {context_path}")
         file_size = context_path.stat().st_size
-        print(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
+        click.echo(f"Context file: {context_path} ({file_size:,} bytes, memory-mapped)")
         return context_path
 
     context_str = _get_default_context()
-    print(f"Loaded context: {len(context_str):,} characters from bundled sample")
+    click.echo(f"Loaded context: {len(context_str):,} characters from bundled sample")
     return context_str
 
 
@@ -170,21 +171,21 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
     if args.backend == "anthropic":
         if not os.getenv("ANTHROPIC_API_KEY"):
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-        print(f"Using Anthropic backend with model: {args.model}")
+        click.echo(f"Using Anthropic backend with model: {args.model}")
         return AnthropicBackend()
 
     if args.backend == "ollama":
         base_url = _resolve_ollama_url(args.base_url)
-        print(f"Using Ollama backend with model: {args.model}")
-        print(f"  Base URL: {base_url}")
+        click.echo(f"Using Ollama backend with model: {args.model}")
+        click.echo(f"  Base URL: {base_url}")
         return OpenAICompatibleBackend(base_url=base_url, api_key="ollama")
 
     if args.backend == "claude":
-        print(f"Using Claude CLI backend with model: {args.model}")
+        click.echo(f"Using Claude CLI backend with model: {args.model}")
         return ClaudeCLIBackend()
 
     if args.backend == "callback":
-        print("Using mock callback backend")
+        click.echo("Using mock callback backend")
         return CallbackBackend(_mock_llm_callback)
 
     raise ValueError(f"Unknown backend: {args.backend}")
@@ -207,36 +208,33 @@ def _run_completion(rlm: RLM, context: str | Path | CompositeContext, query: str
     int
         Exit code.
     """
-    print("=" * 80)
-    print("Starting RLM completion...")
-    print("=" * 80 + "\n")
+    click.echo(click.style("\U0001f680 STARTING RLM COMPLETION", bold=True, fg="cyan"))
 
     try:
         result = rlm.completion(context=context, query=query)
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user", file=sys.stderr)
+        click.echo(click.style("\n\U0000274c INTERRUPTED BY USER", bold=True, fg="red"), err=True)
         return 130
     except Exception as e:
-        print(f"\nError during completion: {e}", file=sys.stderr)
+        click.echo(click.style(f"\n\U0000274c ERROR: {e}", bold=True, fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
         return 1
 
     if not result.success:
-        print(f"\nError: {result.error}", file=sys.stderr)
+        click.echo(
+            click.style(f"\n\U0000274c ERROR: {result.error}", bold=True, fg="red"), err=True
+        )
         return 1
 
-    print("\n" + "=" * 80)
-    print("FINAL ANSWER:")
-    print("=" * 80)
-    print(result.answer)
-    print("\n" + "=" * 80)
-    print("STATISTICS:")
-    print("=" * 80)
+    click.echo(click.style("\n\U00002705 FINAL ANSWER", bold=True, fg="green"))
+    click.echo(result.answer)
+
+    click.echo(click.style("\n\U0001f4ca STATISTICS", bold=True, fg="blue"))
     stats = rlm.cost_summary()
     for key, value in stats.items():
-        print(f"  {key}: {value}")
+        click.echo(f"  {key}: {value}")
     return 0
 
 
@@ -327,24 +325,24 @@ def main() -> int:
     try:
         context = _load_context(args)
     except (FileNotFoundError, NotADirectoryError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+        click.echo(f"Error: {e}", err=True)
         return 1
     except Exception as e:
-        print(f"Error loading context: {e}", file=sys.stderr)
+        click.echo(f"Error loading context: {e}", err=True)
         return 1
 
-    print(f"Query: {args.query}\n")
+    click.echo(f"Query: {args.query}\n")
 
     # Initialize backend
     try:
         backend = _create_backend(args)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        click.echo(f"Error: {e}", err=True)
         return 1
     except ImportError as e:
-        print(f"Error initializing backend: {e}", file=sys.stderr)
-        print("\nInstall required dependencies:", file=sys.stderr)
-        print("  pip install anthropic  # or: pip install openai", file=sys.stderr)
+        click.echo(f"Error initializing backend: {e}", err=True)
+        click.echo("\nInstall required dependencies:", err=True)
+        click.echo("  pip install anthropic  # or: pip install openai", err=True)
         return 1
 
     # Create RLM instance

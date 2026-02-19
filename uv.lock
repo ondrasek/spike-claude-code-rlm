@@ -1000,6 +1000,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "click" },
     { name = "openai" },
 ]
 
@@ -1026,6 +1027,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.39.0" },
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "click", specifier = ">=8.0.0" },
     { name = "codespell", marker = "extra == 'dev'", specifier = ">=2.2.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.12.0" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
