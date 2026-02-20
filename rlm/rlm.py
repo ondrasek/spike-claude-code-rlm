@@ -192,6 +192,59 @@ class RLM:
 
         return llm_query
 
+    @staticmethod
+    def _build_context_sample(
+        repl: REPLEnv,
+        sample_size: int = 500,
+        num_samples: int = 4,
+    ) -> str:
+        """Build a document sample string for the initial user prompt.
+
+        Extracts evenly-spaced samples from the REPL context so the LLM
+        can see format variations across the whole document.
+
+        Parameters
+        ----------
+        repl : REPLEnv
+            The REPL environment (already wraps the context).
+        sample_size : int
+            Characters to sample from each region.
+        num_samples : int
+            Number of evenly-spaced samples (minimum 2: head + tail).
+
+        Returns
+        -------
+        str
+            Formatted sample string.
+        """
+        ctx = repl.context
+        size = len(ctx)
+
+        parts = [f"Size: {size:,} bytes"]
+
+        if size <= sample_size * 2:
+            parts.append(f"\nFull content preview:\n{ctx!s}")
+            return "\n".join(parts)
+
+        # Evenly-spaced sample offsets (always includes 0 and near-end)
+        num_samples = max(2, num_samples)
+        offsets = [size * i // num_samples for i in range(num_samples)]
+
+        labels = ["Beginning", "~25%", "~50%", "~75%", "End"]
+        for i, offset in enumerate(offsets):
+            # Clamp to avoid running past end
+            clamped = min(offset, size - sample_size)
+            sample = ctx[clamped : clamped + sample_size]
+            label = labels[i] if i < len(labels) else f"~{100 * i // num_samples}%"
+            parts.append(f"\n{label} (offset {clamped:,}):\n{sample}")
+
+        # Always include the tail
+        tail_start = max(0, size - sample_size)
+        tail = ctx[tail_start:]
+        parts.append(f"\nEnd (offset {tail_start:,}):\n{tail}")
+
+        return "\n".join(parts)
+
     def _log_context_size(self, context: str | Path | list[Path] | CompositeContext) -> None:
         """Log context size information.
 
@@ -281,12 +334,6 @@ class RLM:
         self._last_stats = stats
         history: list[dict[str, Any]] = []
 
-        # Build conversation
-        messages = [
-            {"role": "system", "content": get_system_prompt(self.compact_prompt)},
-            {"role": "user", "content": get_user_prompt(query)},
-        ]
-
         # Create REPL environment
         llm_query_fn = self._create_llm_query_fn(context)
         llm_query_fn.bind_stats(stats)  # type: ignore[attr-defined]
@@ -294,6 +341,13 @@ class RLM:
             context=context,
             llm_query_fn=llm_query_fn,
         )
+
+        # Build conversation with injected document sample
+        context_sample = self._build_context_sample(repl)
+        messages = [
+            {"role": "system", "content": get_system_prompt(self.compact_prompt)},
+            {"role": "user", "content": get_user_prompt(query, context_sample)},
+        ]
 
         self._log(f"Starting RLM completion for query: {query}")
         self._log_context_size(context)

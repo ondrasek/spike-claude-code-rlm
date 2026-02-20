@@ -131,6 +131,8 @@ class LazyContext:
             Regular expression (will be compiled as a ``bytes`` pattern).
         flags : int
             Regex flags (e.g. ``re.IGNORECASE``).
+            **Note:** This is NOT a start offset.  Use ``CONTEXT.chunk()``
+            or slicing to restrict the search region.
 
         Returns
         -------
@@ -138,12 +140,22 @@ class LazyContext:
             Match object (with ``.group()`` returning ``bytes``), or
             ``None``.
         """
+        if flags > 256:  # noqa: PLR2004 — heuristic: valid regex flags are small bitmasks
+            msg = (
+                f"CONTEXT.search() does not accept a start offset (got flags={flags}). "
+                "Use CONTEXT.chunk(offset, size) to restrict the search region."
+            )
+            raise TypeError(msg)
         if self._mm is None:
             return None
         return re.search(pattern.encode(self._encoding), self._mm, flags)
 
-    def findall(self, pattern: str, flags: int = 0) -> list[str]:
+    def findall(self, pattern: str, flags: int = 0) -> list[str | tuple[str, ...]]:
         """Return all non-overlapping matches of *pattern* as strings.
+
+        When the pattern contains capture groups, ``re.findall`` returns
+        tuples of group matches.  This method decodes bytes→str in both
+        cases (flat matches and group tuples).
 
         Parameters
         ----------
@@ -154,16 +166,21 @@ class LazyContext:
 
         Returns
         -------
-        list[str]
-            Decoded match strings.
+        list[str | tuple[str, ...]]
+            Decoded match strings (or tuples when capture groups are used).
         """
         if self._mm is None:
             return []
-        raw_matches = re.findall(pattern.encode(self._encoding), self._mm, flags)
-        return [
-            m.decode(self._encoding, errors="replace") if isinstance(m, bytes) else str(m)
-            for m in raw_matches
-        ]
+        enc = self._encoding
+        raw_matches = re.findall(pattern.encode(enc), self._mm, flags)
+
+        def _decode(item: bytes | tuple[bytes, ...]) -> str | tuple[str, ...]:
+            if isinstance(item, bytes):
+                return item.decode(enc, errors="replace")
+            # tuple of bytes from capture groups
+            return tuple(b.decode(enc, errors="replace") for b in item)
+
+        return [_decode(m) for m in raw_matches]
 
     def lines(self, encoding: str | None = None) -> Iterator[str]:
         """Yield decoded lines without loading the whole file.
@@ -262,12 +279,20 @@ class StringContext:
             Regular expression.
         flags : int
             Regex flags.
+            **Note:** This is NOT a start offset.  Use ``CONTEXT.chunk()``
+            or slicing to restrict the search region.
 
         Returns
         -------
         re.Match[str] | None
             Match object or ``None``.
         """
+        if flags > 256:  # noqa: PLR2004 — heuristic: valid regex flags are small bitmasks
+            msg = (
+                f"CONTEXT.search() does not accept a start offset (got flags={flags}). "
+                "Use CONTEXT.chunk(offset, size) to restrict the search region."
+            )
+            raise TypeError(msg)
         return re.search(pattern, self._text, flags)
 
     def findall(self, pattern: str, flags: int = 0) -> list[str]:
@@ -498,18 +523,26 @@ class CompositeContext:
             Regular expression.
         flags : int
             Regex flags.
+            **Note:** This is NOT a start offset.  Use ``CONTEXT.chunk()``
+            or slicing to restrict the search region.
 
         Returns
         -------
         tuple[str, Match] | None
         """
+        if flags > 256:  # noqa: PLR2004 — heuristic: valid regex flags are small bitmasks
+            msg = (
+                f"CONTEXT.search() does not accept a start offset (got flags={flags}). "
+                "Use CONTEXT.chunk(offset, size) to restrict the search region."
+            )
+            raise TypeError(msg)
         for name, src in self._sources.items():
             m = src.search(pattern, flags)
             if m is not None:
                 return (name, m)
         return None
 
-    def findall(self, pattern: str, flags: int = 0) -> list[tuple[str, str]]:
+    def findall(self, pattern: str, flags: int = 0) -> list[tuple[str, str | tuple[str, ...]]]:
         """Find all matches across all files.
 
         Parameters
@@ -521,10 +554,11 @@ class CompositeContext:
 
         Returns
         -------
-        list[tuple[str, str]]
-            ``(filename, match_text)`` pairs.
+        list[tuple[str, str | tuple[str, ...]]]
+            ``(filename, match_text)`` pairs.  When the pattern contains
+            capture groups, ``match_text`` is a tuple of group strings.
         """
-        results: list[tuple[str, str]] = []
+        results: list[tuple[str, str | tuple[str, ...]]] = []
         for name, src in self._sources.items():
             for match_text in src.findall(pattern, flags):
                 results.append((name, match_text))

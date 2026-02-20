@@ -37,7 +37,7 @@ In the REPL environment, you have access to:
 - `CONTEXT[start:end]` — slice to get a ``str`` substring
 - `len(CONTEXT)` — total size (bytes for files, chars for strings)
 - `CONTEXT.findall(pattern, flags=0)` — regex search across the context
-- `CONTEXT.search(pattern, flags=0)` — regex search (first match)
+- `CONTEXT.search(pattern, flags=0)` — regex search (first match). NO start offset parameter.
 - `CONTEXT.lines()` — yields lines (memory-efficient)
 - `CONTEXT.chunk(start, size)` — return a decoded chunk starting at offset
 - `"keyword" in CONTEXT` — substring containment check
@@ -72,43 +72,46 @@ Check for multi-file with ``hasattr(CONTEXT, 'files')``.
 - `collections`: Data structures (Counter, defaultdict, etc.)
 - `itertools`: Iterator utilities
 
-## Strategy
+## Strategy (MANDATORY — follow in order)
 
-1. **Inspect**: Start by checking the size and structure of CONTEXT
-   - Use `len(CONTEXT)` to see how large it is
-   - Sample small portions like `CONTEXT[:500]` to understand format
-   - Use `CONTEXT.findall()` to find headers, sections, or patterns
+You MUST follow these steps in order. Do NOT skip the Inspect step.
 
-2. **Search**: Find relevant sections
-   - Use `CONTEXT.findall(pattern)` or `CONTEXT.search(pattern)` to locate content
-   - Count occurrences of keywords
-   - Extract structured data (JSON, tables, etc.)
+1. **Inspect** (MANDATORY first step): Study the document sample provided below the query.
+   - The sample shows the first and last 500 characters of the document.
+   - Read the sample carefully to understand the format (plain text, Markdown, JSON, CSV, etc.).
+   - Design your regex patterns based on the ACTUAL format you see, not assumptions.
+   - DO NOT use `CONTEXT[:500]` or `len(CONTEXT)` — that information is already provided.
 
-3. **Chunk**: Break down large sections using `llm_query()`
-   - Process manageable portions (a few thousand characters)
-   - Summarize, extract, or analyze each chunk
-   - Aggregate results from multiple chunks
+2. **Search** (broad first, then refine): Cast a wide net, inspect what you find, then narrow.
+   - Start with a BROAD keyword search using `CONTEXT.findall()` with `re.IGNORECASE`.
+   - Print the matches to see what formats actually appear in the document.
+   - If results show format variations (e.g. "Article 1" vs "ARTICLE THREE"),
+     refine your regex to capture ALL variants.
+   - If a search returns 0 or surprisingly few results, your pattern is wrong.
+     Try a broader pattern or print a sample around a known keyword.
+     DO NOT call FINAL() with incomplete results.
 
-4. **Synthesize**: Combine results and provide final answer
-   - Build your answer from the extracted/analyzed information
-   - Call `FINAL(answer)` with your complete response
+3. **Chunk + Analyze**: Break down large sections using `llm_query()`.
+   - Use `CONTEXT.chunk(start, size)` to extract sections (aim for 1000-5000 chars).
+   - Pass chunks to `llm_query()` for summarization, extraction, or analysis.
+   - Aggregate results from multiple chunks.
+
+4. **Synthesize**: Combine results and call `FINAL(answer)` with your complete response.
 
 ## Example Patterns
 
-### Pattern 1: Count and Sample
+### Search for headings (broad keyword first, then refine)
 ```python
-print(f"Context size: {len(CONTEXT):,}")
-sample = CONTEXT[:1000]
-print(f"Sample: {sample}")
+# Step 1: Broad search — find every line containing a keyword (no capture groups!)
+hits = CONTEXT.findall(r'^.*Article.*$', re.MULTILINE | re.IGNORECASE)
+print(f"Lines containing 'Article': {hits[:20]}")
+# Step 2: Inspect the matches to discover actual heading formats
+# Step 3: Build a refined regex based on what you see
+# IMPORTANT: Avoid capture groups (...) in findall — they return tuples, not strings.
+# Use non-capturing groups (?:...) if you need grouping.
 ```
 
-### Pattern 2: Search for Sections
-```python
-headers = CONTEXT.findall(r'^## .+$', re.MULTILINE)
-print(f"Found {len(headers)} sections: {headers}")
-```
-
-### Pattern 3: Iterate Lines
+### Iterate lines looking for keywords
 ```python
 for i, line in enumerate(CONTEXT.lines()):
     if "keyword" in line:
@@ -117,15 +120,14 @@ for i, line in enumerate(CONTEXT.lines()):
         break  # safety limit
 ```
 
-### Pattern 4: Recursive Analysis
+### Chunk and delegate analysis to llm_query
 ```python
-# Read a chunk and summarise it
 chunk = CONTEXT.chunk(0, 3000)
 summary = llm_query(f"Summarize this section:\\n{chunk}")
 print(summary)
 ```
 
-### Pattern 5: Multi-file Exploration
+### Multi-file exploration
 ```python
 if hasattr(CONTEXT, 'files'):
     print(f"Files: {CONTEXT.files}")
@@ -134,19 +136,16 @@ if hasattr(CONTEXT, 'files'):
         print(f"{fname}: {len(f):,} bytes")
 ```
 
-### Pattern 6: Return Final Answer
-```python
-FINAL("Based on my analysis: ...")
-```
-
 ## Important Rules
 
-1. **NEVER print CONTEXT directly** - it's too large and will waste tokens
+1. **NEVER print CONTEXT directly** — it's too large and will waste tokens
 2. **Use CONTEXT.findall() / CONTEXT.search()** instead of ``re.findall(..., CONTEXT)``
-3. **Use llm_query() for text analysis** - don't try to manually parse complex text
-4. **Keep chunks reasonable** - aim for 1000-5000 chars per llm_query() call
-5. **Always call FINAL()** - this is how you return your answer
-6. **Print intermediate results** - this helps you (and me) understand what you're finding
+3. **Use llm_query() for text analysis** — don't try to manually parse complex text
+4. **Keep chunks reasonable** — aim for 1000-5000 chars per llm_query() call
+5. **Always call FINAL()** — this is how you return your answer
+6. **Print intermediate results** — this helps you understand what you're finding
+7. **NEVER call FINAL() with empty results** — if you found nothing, try a different approach
+8. **Avoid capture groups in findall** — `(...)` returns tuples; use `(?:...)` for grouping
 
 ## Output Format
 
@@ -175,35 +174,38 @@ Answer the query by writing Python code to explore CONTEXT.
 - `FINAL(answer: str)`: Return final answer
 - Modules: `re`, `json`, `math`, `collections`, `itertools`
 
-**Strategy:**
-1. Inspect: `len(CONTEXT)`, sample with `CONTEXT[:500]`
-2. Search: Use `CONTEXT.findall()` to locate content
+**Strategy (MANDATORY — follow in order):**
+1. Inspect: A document sample is provided below the query. Read it to understand the format.
+2. Search: Start BROAD (e.g. find all lines containing a keyword), inspect the matches to
+   discover format variations, then refine. Never FINAL() with empty or incomplete results.
 3. Chunk: Process sections with `llm_query(chunk)`
 4. Synthesize: Call `FINAL(answer)` when done
-
-**Example:**
-```python
-print(f"Size: {len(CONTEXT):,}")
-sections = CONTEXT.findall(r'^## .+$', re.MULTILINE)
-# ... process sections ...
-FINAL("Your answer here")
-```
 
 Write Python code to explore CONTEXT and answer the query.
 """
 
 
-def get_user_prompt(query: str) -> str:
+def get_user_prompt(query: str, context_sample: str = "") -> str:
     """Format the user's query as a prompt.
 
-    Args:
-        query: The user's question
+    Parameters
+    ----------
+    query : str
+        The user's question.
+    context_sample : str
+        Pre-computed document sample (size + head + tail) injected by the
+        orchestrator so the LLM never starts blind.
 
-    Returns:
-        Formatted user prompt
+    Returns
+    -------
+    str
+        Formatted user prompt.
     """
-    return f"""Query: {query}
-
-Please write Python code to explore CONTEXT and answer this query.
-Remember to call FINAL() when you have the answer.
-"""
+    parts = [f"Query: {query}"]
+    if context_sample:
+        parts.append(f"\n## Document Sample\n{context_sample}")
+    parts.append(
+        "\nPlease write Python code to explore CONTEXT and answer this query."
+        "\nRemember to call FINAL() when you have the answer."
+    )
+    return "\n".join(parts)
