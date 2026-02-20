@@ -72,6 +72,11 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
 
+[tool.pytest.ini_options]
+markers = [
+    "ollama: tests requiring a live Ollama server (deselect with: -m 'not ollama')",
+]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true
