@@ -104,6 +104,7 @@ def structure_result() -> RLMResult:
     return _run_query(_QUERY_STRUCTURE)
 
 
+@pytest.mark.slow
 @pytest.mark.ollama
 @skip_no_ollama
 @skip_no_constitution
@@ -146,6 +147,7 @@ def bill_of_rights_result() -> RLMResult:
     return _run_query(_QUERY_BILL_OF_RIGHTS)
 
 
+@pytest.mark.slow
 @pytest.mark.ollama
 @skip_no_ollama
 @skip_no_constitution
@@ -197,6 +199,7 @@ def congressional_powers_result() -> RLMResult:
     return _run_query(_QUERY_CONGRESSIONAL_POWERS)
 
 
+@pytest.mark.slow
 @pytest.mark.ollama
 @skip_no_ollama
 @skip_no_constitution

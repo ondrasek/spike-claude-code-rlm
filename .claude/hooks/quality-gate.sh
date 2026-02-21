@@ -78,8 +78,8 @@ run_check_nonempty() {
 # Skip pytest/coverage if no test files exist
 TEST_FILES=$(find . -name "test_*.py" -o -name "*_test.py" 2>/dev/null | grep -v ".venv" | head -1)
 if [ -n "$TEST_FILES" ]; then
-    run_check        "pytest"         uv run pytest -x --tb=short
-    run_check        "coverage"       uv run pytest --cov=rlm --cov-report=term --cov-fail-under=80 -q
+    run_check        "pytest"         uv run pytest -x --tb=short -m "not slow"
+    run_check        "coverage"       uv run pytest --cov=rlm --cov-report=term --cov-fail-under=80 -q -m "not slow"
 else
     debuglog "Skipping pytest/coverage (no test files found)"
 fi

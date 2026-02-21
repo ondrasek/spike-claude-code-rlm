@@ -75,6 +75,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
 [tool.pytest.ini_options]
 markers = [
     "ollama: tests requiring a live Ollama server (deselect with: -m 'not ollama')",
+    "slow: long-running or expensive tests (deselect with: -m 'not slow')",
 ]
 
 [tool.mypy]
