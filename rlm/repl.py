@@ -45,7 +45,8 @@ def _materialize_context(
 
     # list[Path] → build CompositeContext, then materialise.
     if type(context) is list:
-        composite = CompositeContext.from_paths(context)
+        paths: list[Path] = context  # ty: ignore[invalid-assignment]
+        composite = CompositeContext.from_paths(paths)
         files = {name: str(composite.file(name)) for name in composite.files}
         return str(composite), files
 
