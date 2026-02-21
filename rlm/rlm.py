@@ -217,7 +217,7 @@ class RLM:
         str
             Formatted sample string.
         """
-        ctx = repl.context
+        ctx = repl.context_str
         size = len(ctx)
 
         parts = [f"Size: {size:,} characters"]

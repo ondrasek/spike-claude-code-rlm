@@ -21,7 +21,7 @@ REPL — no mocks or fake callbacks.
 ## Quick Start
 
 ```bash
-# Default: Ollama with qwen2.5-coder:32b
+# Default: Ollama with qwen3-coder:32b
 bash examples/01-constitution-analysis/run.sh
 
 # Specify a different model
@@ -37,14 +37,14 @@ All examples default to `ollama`. Pass a different backend as the first argument
 and an optional model as the second:
 
 ```bash
-bash run.sh                              # Ollama with qwen2.5-coder:32b (default)
+bash run.sh                              # Ollama with qwen3-coder:32b (default)
 bash run.sh ollama llama3.2              # Ollama with a different model
 bash run.sh anthropic claude-sonnet-4-20250514  # Anthropic
 ```
 
 | Backend | Requires |
 |---------|----------|
-| `ollama` (default) | Running Ollama server with a model pulled (default: `qwen2.5-coder:32b`) |
+| `ollama` (default) | Running Ollama server with a model pulled (default: `qwen3-coder:32b`) |
 | `anthropic` | `ANTHROPIC_API_KEY` environment variable |
 
 ## Ollama Host Configuration

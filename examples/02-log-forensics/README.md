@@ -19,7 +19,7 @@ a real LLM through RLM's REPL pipeline.
 ## Usage
 
 ```bash
-# Default: Ollama with qwen2.5-coder:32b
+# Default: Ollama with qwen3-coder:32b
 bash run.sh
 
 # Specify a different model

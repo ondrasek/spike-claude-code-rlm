@@ -268,10 +268,10 @@ class TestREPLEnvContextTypeCoercion:
         assert env.context_str == "content"
         assert env.files_dict is None
 
-    def test_context_property_returns_str(self) -> None:
+    def test_context_str_attribute(self) -> None:
         env = REPLEnv(context="hello world", llm_query_fn=noop_llm_query)
-        assert isinstance(env.context, str)
-        assert env.context == "hello world"
+        assert type(env.context_str) is str
+        assert env.context_str == "hello world"
 
 
 class TestREPLEnvShowVars:

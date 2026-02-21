@@ -8,17 +8,17 @@ through RLM's REPL pipeline.
 Runs three queries against the bundled `constitution.txt`, each demonstrating
 a different RLM strategy:
 
-1. **Document structure** — Uses `CONTEXT.findall()` to discover all Article
+1. **Document structure** — Uses `re.findall()` on CONTEXT to discover all Article
    and Amendment headings (regex search, no LLM sub-calls)
-2. **Bill of Rights** — Extracts a chunk via `CONTEXT.chunk()` and delegates
+2. **Bill of Rights** — Extracts a slice via `CONTEXT[start:end]` and delegates
    summarization to `llm_query()` (chunk + recursive call)
-3. **Congressional powers** — Extracts Article I, Section 8 as a chunk and
+3. **Congressional powers** — Extracts Article I, Section 8 as a slice and
    uses `llm_query()` to enumerate the powers (targeted extraction)
 
 ## Usage
 
 ```bash
-# Default: Ollama with qwen2.5-coder:32b
+# Default: Ollama with qwen3-coder:32b
 bash run.sh
 
 # Specify a different model

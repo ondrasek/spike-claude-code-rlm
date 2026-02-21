@@ -15,7 +15,51 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .context import CompositeContext, LazyContext, StringContext
+from .context import CompositeContext, LazyContext
+
+
+def _materialize_context(
+    context: str | Path | list[Path] | CompositeContext,
+) -> tuple[str, dict[str, str] | None]:
+    """Convert any supported context input to a plain ``str`` and optional files dict.
+
+    Parameters
+    ----------
+    context : str | Path | list[Path] | CompositeContext
+        Raw context as provided by the caller.
+
+    Returns
+    -------
+    tuple[str, dict[str, str] | None]
+        ``(full_text, files_dict)``.  *files_dict* is ``None`` for
+        single-document inputs.
+    """
+    # Already a plain string — the common case.
+    if type(context) is str:
+        return context, None
+
+    # Multiple files already wrapped.
+    if type(context) is CompositeContext:
+        files = {name: str(context.file(name)) for name in context.files}
+        return str(context), files
+
+    # list[Path] → build CompositeContext, then materialise.
+    if type(context) is list:
+        composite = CompositeContext.from_paths(context)
+        files = {name: str(composite.file(name)) for name in composite.files}
+        return str(composite), files
+
+    # Single Path (or subclass like PosixPath/WindowsPath) → load, then materialise.
+    if issubclass(type(context), Path):
+        path: Path = context  # type: ignore[assignment]
+        lazy = LazyContext(path)
+        text = str(lazy)
+        lazy.close()
+        return text, None
+
+    # Fallback: coerce to str.
+    return str(context), None
+
 
 # Restricted set of builtins safe for the REPL sandbox.
 # This prevents LLM-generated code from importing arbitrary modules,
@@ -173,30 +217,10 @@ class REPLEnv:
         max_output_length : int
             Maximum length of captured output.
         """
-        # Load context through the wrapper classes (for file I/O) then
-        # materialise to plain str for the REPL namespace.
+        self.context_str: str
         self.files_dict: dict[str, str] | None = None
-        self._context_loader: LazyContext | StringContext | CompositeContext
 
-        if isinstance(context, CompositeContext):
-            self._context_loader = context
-            self.context_str: str = str(context)
-            self.files_dict = {name: str(context.file(name)) for name in context.files}
-        elif isinstance(context, list):
-            composite = CompositeContext.from_paths(context)
-            self._context_loader = composite
-            self.context_str = str(composite)
-            self.files_dict = {name: str(composite.file(name)) for name in composite.files}
-        elif isinstance(context, Path):
-            lazy = LazyContext(context)
-            self._context_loader = lazy
-            self.context_str = str(lazy)
-        elif isinstance(context, StringContext | LazyContext):
-            self._context_loader = context
-            self.context_str = str(context)
-        else:
-            self._context_loader = StringContext(context)
-            self.context_str = context
+        self.context_str, self.files_dict = _materialize_context(context)
 
         self.llm_query_fn = llm_query_fn
         self.max_output_length = max_output_length
@@ -206,15 +230,6 @@ class REPLEnv:
 
         # Persistent namespace — survives across execute() calls.
         self._namespace: dict[str, Any] = self._build_namespace()
-
-    @property
-    def context(self) -> str:
-        """The full context as a plain Python string.
-
-        Used by :meth:`RLM._build_context_sample` and other callers that
-        need ``len()`` and slicing on the context.
-        """
-        return self.context_str
 
     def _show_vars(self) -> None:
         """Print user-defined variables in the REPL namespace."""

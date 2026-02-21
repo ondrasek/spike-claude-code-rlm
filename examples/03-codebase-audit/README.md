@@ -16,7 +16,7 @@ Runs twice: once with the full system prompt and once with `--compact` for compa
 ## Usage
 
 ```bash
-# Default: Ollama with qwen2.5-coder:32b
+# Default: Ollama with qwen3-coder:32b
 bash run.sh
 
 # Specify a different model
@@ -31,7 +31,7 @@ ANTHROPIC_API_KEY=sk-... bash run.sh anthropic claude-sonnet-4-20250514
 - `--context-dir` for directory-based context loading
 - `--context-glob` for filtering file patterns
 - `--compact` for the shorter system prompt
-- Multi-file context (`CompositeContext`): `CONTEXT.files`, `CONTEXT.file()`
+- Multi-file context: `FILES` dict with per-file contents
 
 ## Files
 

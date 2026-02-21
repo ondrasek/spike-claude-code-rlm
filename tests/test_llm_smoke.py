@@ -1,7 +1,7 @@
 """LLM smoke tests — verify real models generate working REPL code.
 
 These tests run against a live Ollama server and validate that the model:
-- Calls the correct CONTEXT API methods
+- Uses standard Python on CONTEXT (a plain str): re.findall(), slicing, etc.
 - Uses llm_query() for text analysis when appropriate
 - Produces a final answer via FINAL() within bounded iterations
 - Returns answers containing expected keywords
@@ -27,7 +27,7 @@ _OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
 _OLLAMA_BASE_URL = (
     f"{_OLLAMA_HOST}/v1" if _OLLAMA_HOST.startswith("http") else f"http://{_OLLAMA_HOST}/v1"
 )
-_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:32b")
+_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:32b")
 
 CONSTITUTION_PATH = (
     Path(__file__).resolve().parent.parent
@@ -88,9 +88,9 @@ def _run_query(query: str) -> RLMResult:
 _QUERY_STRUCTURE = (
     "Find the major sections of this document. "
     "Note: Article headings use mixed case (e.g. 'Article 1', 'ARTICLE TWO'). "
-    r"Step 1: Use CONTEXT.findall(r'^ARTICLE\s+\S+$', re.MULTILINE | re.IGNORECASE) "
+    r"Step 1: Use re.findall(r'^ARTICLE\s+\S+$', CONTEXT, re.MULTILINE | re.IGNORECASE) "
     "to find Article headings. "
-    r"Step 2: Use CONTEXT.findall(r'^Amendment [IVXLC]+', re.MULTILINE) "
+    r"Step 2: Use re.findall(r'^Amendment [IVXLC]+', CONTEXT, re.MULTILINE) "
     "to find Amendment headings. "
     "Step 3: Print both lists. "
     "Step 4: Call FINAL() with a numbered list of every heading you found, "
@@ -109,7 +109,7 @@ def structure_result() -> RLMResult:
 @skip_no_ollama
 @skip_no_constitution
 class TestDocumentStructure:
-    """Query 1: Find Articles and Amendments via CONTEXT.findall()."""
+    """Query 1: Find Articles and Amendments via re.findall() on CONTEXT."""
 
     def test_completes_successfully(self, structure_result: RLMResult) -> None:
         assert structure_result.success, f"RLM failed: {structure_result.error}"
@@ -133,8 +133,8 @@ class TestDocumentStructure:
 
 _QUERY_BILL_OF_RIGHTS = (
     "What rights does the Bill of Rights protect? "
-    "The Bill of Rights text starts around byte offset 27000 and runs about 2700 bytes. "
-    "Step 1: Grab the chunk with chunk = CONTEXT.chunk(27000, 2800) and print it to verify. "
+    "The Bill of Rights text starts around character offset 27000 and runs about 2700 chars. "
+    "Step 1: Grab the chunk with chunk = CONTEXT[27000:29800] and print it to verify. "
     "Step 2: Pass the chunk to llm_query("
     "'Summarize each of the 10 amendments (I-X) in one sentence each.'). "
     "Step 3: Call FINAL() with the result from llm_query."
@@ -185,8 +185,8 @@ class TestBillOfRights:
 
 _QUERY_CONGRESSIONAL_POWERS = (
     "What specific powers does Congress have? "
-    "Section 8 of Article 1 starts around byte offset 8500 and runs about 2600 bytes. "
-    "Step 1: Grab the chunk with chunk = CONTEXT.chunk(8500, 2700) and print it to verify. "
+    "Section 8 of Article 1 starts around character offset 8500 and runs about 2600 chars. "
+    "Step 1: Grab the chunk with chunk = CONTEXT[8500:11200] and print it to verify. "
     "Step 2: Pass the chunk to llm_query("
     "'List each enumerated power of Congress in this text.'). "
     "Step 3: Call FINAL() with the result from llm_query."

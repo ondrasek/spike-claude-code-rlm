@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BACKEND="${1:-ollama}"
-MODEL="${2:-qwen2.5-coder:32b}"
+MODEL="${2:-qwen3-coder:32b}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
