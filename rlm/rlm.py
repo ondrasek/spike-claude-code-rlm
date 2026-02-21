@@ -220,7 +220,7 @@ class RLM:
         ctx = repl.context
         size = len(ctx)
 
-        parts = [f"Size: {size:,} bytes"]
+        parts = [f"Size: {size:,} characters"]
 
         if size <= sample_size * 2:
             parts.append(f"\nFull content preview:\n{ctx!s}")

@@ -73,7 +73,7 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
   - `AnthropicBackend` — Direct Anthropic API (requires `anthropic` package, `ANTHROPIC_API_KEY` env var)
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
   - `CallbackBackend` — Wraps a `Callable[[list[dict], str], str]` for custom integrations
-- **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Isolation is delegated to the container runtime.
+- **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
 - **`prompts.py`** (`rlm/prompts.py`): Two system prompts (`FULL_SYSTEM_PROMPT` at ~120 lines, `COMPACT_SYSTEM_PROMPT` at ~25 lines) that instruct the LLM on the inspect-search-chunk-synthesize strategy.
 - **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend`, `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags.
 
@@ -158,6 +158,7 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 
 ## Common Pitfalls
 
+- `CONTEXT` in the REPL is a **plain Python `str`** — LLM-generated code should use standard Python (`re.findall(pattern, CONTEXT)`, `CONTEXT.splitlines()`, slicing) not custom methods. The context classes in `context.py` are internal file-loading infrastructure only.
 - The `_extract_code_blocks` regex expects markdown code fences (`` ```python `` or `` ``` ``); changes to code block parsing affect the entire iteration loop
 - `AnthropicBackend` creates a new `AsyncAnthropic` client on every `acompletion` call — this is by design for simplicity but could be optimized
 - The `FINAL_VAR` implementation in `repl.py` is incomplete — `_final_var` is a no-op; the fallback logic checks for `final_` prefixed variables in the namespace instead

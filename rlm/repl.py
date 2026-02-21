@@ -104,6 +104,25 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "NotImplementedError": NotImplementedError,
 }
 
+# Names injected by the REPL that SHOW_VARS should hide.
+_REPL_INTERNALS = frozenset(
+    {
+        "__builtins__",
+        "CONTEXT",
+        "FILES",
+        "SHOW_VARS",
+        "llm_query",
+        "FINAL",
+        "FINAL_VAR",
+        "re",
+        "json",
+        "math",
+        "collections",
+        "itertools",
+        "print",
+    }
+)
+
 
 @dataclass
 class REPLResult:
@@ -119,7 +138,9 @@ class REPLEnv:
     """REPL environment for RLM code execution.
 
     Provides:
-    - CONTEXT variable (the full document)
+    - CONTEXT variable (the full document as a plain Python ``str``)
+    - FILES dict (``{filename: content_str}``) when multiple files are loaded
+    - SHOW_VARS() helper to list user-defined variables
     - llm_query() function for recursive LLM calls
     - FINAL() and FINAL_VAR() for returning results
     - Pre-imported modules: re, json, math, collections, itertools
@@ -142,24 +163,41 @@ class REPLEnv:
         context : str | Path | list[Path] | CompositeContext
             The document/context.
 
-            * ``str`` — wrapped in :class:`StringContext`.
-            * ``Path`` — memory-mapped via :class:`LazyContext`.
+            * ``str`` — used directly as the CONTEXT string.
+            * ``Path`` — loaded via :class:`LazyContext`, then materialized.
             * ``list[Path]`` — multiple files wrapped in
-              :class:`CompositeContext`.
-            * ``CompositeContext`` — used as-is.
+              :class:`CompositeContext`, then materialized.
+            * ``CompositeContext`` — materialized to ``str``.
         llm_query_fn : Callable[[str], str]
             Function to call for recursive LLM queries.
         max_output_length : int
             Maximum length of captured output.
         """
+        # Load context through the wrapper classes (for file I/O) then
+        # materialise to plain str for the REPL namespace.
+        self.files_dict: dict[str, str] | None = None
+        self._context_loader: LazyContext | StringContext | CompositeContext
+
         if isinstance(context, CompositeContext):
-            self.context: LazyContext | StringContext | CompositeContext = context
+            self._context_loader = context
+            self.context_str: str = str(context)
+            self.files_dict = {name: str(context.file(name)) for name in context.files}
         elif isinstance(context, list):
-            self.context = CompositeContext.from_paths(context)
+            composite = CompositeContext.from_paths(context)
+            self._context_loader = composite
+            self.context_str = str(composite)
+            self.files_dict = {name: str(composite.file(name)) for name in composite.files}
         elif isinstance(context, Path):
-            self.context = LazyContext(context)
+            lazy = LazyContext(context)
+            self._context_loader = lazy
+            self.context_str = str(lazy)
+        elif isinstance(context, StringContext | LazyContext):
+            self._context_loader = context
+            self.context_str = str(context)
         else:
-            self.context = StringContext(context)
+            self._context_loader = StringContext(context)
+            self.context_str = context
+
         self.llm_query_fn = llm_query_fn
         self.max_output_length = max_output_length
         self.final_answer: str | None = None
@@ -169,14 +207,40 @@ class REPLEnv:
         # Persistent namespace — survives across execute() calls.
         self._namespace: dict[str, Any] = self._build_namespace()
 
+    @property
+    def context(self) -> str:
+        """The full context as a plain Python string.
+
+        Used by :meth:`RLM._build_context_sample` and other callers that
+        need ``len()`` and slicing on the context.
+        """
+        return self.context_str
+
+    def _show_vars(self) -> None:
+        """Print user-defined variables in the REPL namespace."""
+        user_vars = {
+            k: v
+            for k, v in self._namespace.items()
+            if k not in _REPL_INTERNALS and not k.startswith("_")
+        }
+        if not user_vars:
+            self._capture_print("(no user-defined variables)")
+            return
+        for name, value in user_vars.items():
+            rep = repr(value)
+            if len(rep) > 100:
+                rep = rep[:97] + "..."
+            self._capture_print(f"{name} = {rep}")
+
     def _build_namespace(self) -> dict[str, Any]:
         """Build the execution namespace with RLM helpers and safe builtins."""
-        return {
+        ns: dict[str, Any] = {
             "__builtins__": _SAFE_BUILTINS.copy(),
-            "CONTEXT": self.context,
+            "CONTEXT": self.context_str,
             "llm_query": self._llm_query,
             "FINAL": self._final,
             "FINAL_VAR": self._final_var,
+            "SHOW_VARS": self._show_vars,
             "re": re,
             "json": json,
             "math": math,
@@ -184,6 +248,9 @@ class REPLEnv:
             "itertools": itertools,
             "print": self._capture_print,
         }
+        if self.files_dict is not None:
+            ns["FILES"] = self.files_dict
+        return ns
 
     def _capture_print(self, *args: Any, **kwargs: Any) -> None:
         """Capture print output to buffer.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rlm.context import LazyContext, StringContext
+from rlm.context import CompositeContext
 from rlm.repl import REPLEnv, REPLResult
 
 from .conftest import SAMPLE_TEXT, noop_llm_query
@@ -57,7 +57,12 @@ class TestREPLEnvBasicExecution:
 
 
 class TestREPLEnvContextAccess:
-    """Tests for CONTEXT variable access."""
+    """Tests for CONTEXT variable access — CONTEXT is a plain Python str."""
+
+    def test_context_is_plain_str(self, repl_env: REPLEnv) -> None:
+        result = repl_env.execute("print(type(CONTEXT).__name__)")
+        assert result.success is True
+        assert "str" in result.output
 
     def test_context_length(self, repl_env: REPLEnv) -> None:
         result = repl_env.execute("print(len(CONTEXT))")
@@ -69,25 +74,35 @@ class TestREPLEnvContextAccess:
         assert result.success is True
         assert "Chapter 1" in result.output
 
-    def test_context_findall(self, repl_env: REPLEnv) -> None:
-        result = repl_env.execute('matches = CONTEXT.findall(r"Chapter \\d+")\nprint(matches)')
+    def test_context_re_findall(self, repl_env: REPLEnv) -> None:
+        result = repl_env.execute('matches = re.findall(r"Chapter \\d+", CONTEXT)\nprint(matches)')
         assert result.success is True
         assert "Chapter 1" in result.output
         assert "Chapter 4" in result.output
 
-    def test_context_search(self, repl_env: REPLEnv) -> None:
+    def test_context_re_search(self, repl_env: REPLEnv) -> None:
         result = repl_env.execute(
-            'match = CONTEXT.search(r"Chapter (\\d+)")\nprint(match.group(1))'
+            'match = re.search(r"Chapter (\\d+)", CONTEXT)\nprint(match.group(1))'
         )
         assert result.success is True
         assert "1" in result.output
 
-    def test_context_lines(self, repl_env: REPLEnv) -> None:
+    def test_context_splitlines(self, repl_env: REPLEnv) -> None:
         result = repl_env.execute(
-            "lines = list(CONTEXT.lines())\nprint(len(lines))\nprint(lines[0])"
+            "lines = CONTEXT.splitlines()\nprint(len(lines))\nprint(lines[0])"
         )
         assert result.success is True
         assert "Chapter 1: Introduction" in result.output
+
+    def test_context_split_newline(self, repl_env: REPLEnv) -> None:
+        result = repl_env.execute("lines = CONTEXT.split('\\n')\nprint(lines[0])")
+        assert result.success is True
+        assert "Chapter 1: Introduction" in result.output
+
+    def test_context_contains(self, repl_env: REPLEnv) -> None:
+        result = repl_env.execute('print("Chapter 1" in CONTEXT)')
+        assert result.success is True
+        assert "True" in result.output
 
 
 class TestREPLEnvPrintCapture:
@@ -239,16 +254,96 @@ class TestREPLEnvErrorHandling:
 class TestREPLEnvContextTypeCoercion:
     """Tests for context type coercion in __init__."""
 
-    def test_str_wraps_in_string_context(self) -> None:
+    def test_str_produces_plain_str_context(self) -> None:
         env = REPLEnv(context="hello", llm_query_fn=noop_llm_query)
-        assert isinstance(env.context, StringContext)
+        assert isinstance(env.context_str, str)
+        assert env.context_str == "hello"
+        assert env.files_dict is None
 
-    def test_path_wraps_in_lazy_context(self, tmp_path: Path) -> None:
+    def test_path_produces_plain_str_context(self, tmp_path: Path) -> None:
         p = tmp_path / "test.txt"
         p.write_text("content", encoding="utf-8")
         env = REPLEnv(context=p, llm_query_fn=noop_llm_query)
-        assert isinstance(env.context, LazyContext)
-        env.context.close()
+        assert isinstance(env.context_str, str)
+        assert env.context_str == "content"
+        assert env.files_dict is None
+
+    def test_context_property_returns_str(self) -> None:
+        env = REPLEnv(context="hello world", llm_query_fn=noop_llm_query)
+        assert isinstance(env.context, str)
+        assert env.context == "hello world"
+
+
+class TestREPLEnvShowVars:
+    """Tests for SHOW_VARS() helper."""
+
+    def test_show_vars_empty(self) -> None:
+        env = REPLEnv(context="test", llm_query_fn=noop_llm_query)
+        result = env.execute("SHOW_VARS()")
+        assert result.success is True
+        assert "no user-defined variables" in result.output
+
+    def test_show_vars_with_user_variables(self) -> None:
+        env = REPLEnv(context="test", llm_query_fn=noop_llm_query)
+        env.execute("x = 42\ny = 'hello'")
+        result = env.execute("SHOW_VARS()")
+        assert result.success is True
+        assert "x = 42" in result.output
+        assert "y = 'hello'" in result.output
+
+    def test_show_vars_excludes_internals(self) -> None:
+        env = REPLEnv(context="test", llm_query_fn=noop_llm_query)
+        env.execute("my_var = 'visible'")
+        result = env.execute("SHOW_VARS()")
+        assert result.success is True
+        assert "my_var" in result.output
+        # REPL internals should NOT appear
+        assert "CONTEXT" not in result.output
+        assert "FINAL" not in result.output
+        assert "llm_query" not in result.output
+
+
+class TestREPLEnvFilesDict:
+    """Tests for FILES dict with multi-file context."""
+
+    def test_files_dict_present_for_composite(self, tmp_path: Path) -> None:
+        (tmp_path / "a.txt").write_text("content A", encoding="utf-8")
+        (tmp_path / "b.txt").write_text("content B", encoding="utf-8")
+        ctx = CompositeContext.from_paths([tmp_path / "a.txt", tmp_path / "b.txt"])
+        env = REPLEnv(context=ctx, llm_query_fn=noop_llm_query)
+        assert env.files_dict is not None
+        assert "a.txt" in env.files_dict
+        assert "b.txt" in env.files_dict
+        assert env.files_dict["a.txt"] == "content A"
+        assert env.files_dict["b.txt"] == "content B"
+        ctx.close()
+
+    def test_files_available_in_namespace(self, tmp_path: Path) -> None:
+        (tmp_path / "x.txt").write_text("hello X", encoding="utf-8")
+        (tmp_path / "y.txt").write_text("hello Y", encoding="utf-8")
+        ctx = CompositeContext.from_paths([tmp_path / "x.txt", tmp_path / "y.txt"])
+        env = REPLEnv(context=ctx, llm_query_fn=noop_llm_query)
+        result = env.execute("print(list(FILES.keys()))")
+        assert result.success is True
+        assert "x.txt" in result.output
+        assert "y.txt" in result.output
+        ctx.close()
+
+    def test_files_not_present_for_single_file(self) -> None:
+        env = REPLEnv(context="single file content", llm_query_fn=noop_llm_query)
+        assert env.files_dict is None
+        result = env.execute('print("FILES" in dir())')
+        assert result.success is True
+        assert "False" in result.output
+
+    def test_files_from_path_list(self, tmp_path: Path) -> None:
+        (tmp_path / "p.txt").write_text("path content", encoding="utf-8")
+        env = REPLEnv(
+            context=[tmp_path / "p.txt"],
+            llm_query_fn=noop_llm_query,
+        )
+        assert env.files_dict is not None
+        assert "p.txt" in env.files_dict
 
 
 class TestREPLEnvPreImportedModules:
