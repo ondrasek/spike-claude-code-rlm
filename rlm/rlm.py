@@ -52,13 +52,16 @@ class RLM:
     def __init__(
         self,
         backend: LLMBackend,
-        model: str = "claude-sonnet-4-20250514",
+        model: str,
         recursive_model: str | None = None,
         max_iterations: int = 10,
         max_depth: int = 3,
         max_tokens: int = 4096,
         verbose: bool = False,
         compact_prompt: bool = False,
+        include_context_sample: bool = True,
+        timeout: float | None = None,
+        max_token_budget: int | None = None,
     ) -> None:
         """Initialize RLM orchestrator.
 
@@ -80,6 +83,12 @@ class RLM:
             Print debug output.
         compact_prompt : bool
             Use shorter system prompt.
+        include_context_sample : bool
+            Include document sample in initial prompt.
+        timeout : float | None
+            Wall-clock timeout in seconds. None means no timeout.
+        max_token_budget : int | None
+            Maximum total tokens (input + output). None means no limit.
         """
         self.backend = backend
         self.model = model
@@ -89,6 +98,9 @@ class RLM:
         self.max_tokens = max_tokens
         self.verbose = verbose
         self.compact_prompt = compact_prompt
+        self.include_context_sample = include_context_sample
+        self.timeout = timeout
+        self.max_token_budget = max_token_budget
 
     def _log(self, message: str) -> None:
         """Log a message if verbose is enabled.
@@ -126,7 +138,7 @@ class RLM:
         self,
         context: str | Path | list[Path] | CompositeContext,
         current_depth: int = 0,
-    ) -> Callable[[str], str]:
+    ) -> Callable[[str, str], str]:
         """Create llm_query function for REPL.
 
         Parameters
@@ -138,18 +150,20 @@ class RLM:
 
         Returns
         -------
-        Callable[[str], str]
-            Function that executes LLM queries.
+        Callable[[str, str], str]
+            Function that executes LLM queries with (snippet, task) args.
         """
         stats = None  # Will be set per-completion call
 
-        def llm_query(prompt: str) -> str:
+        def llm_query(snippet: str, task: str) -> str:
             """Execute a recursive LLM query.
 
             Parameters
             ----------
-            prompt : str
-                Query prompt.
+            snippet : str
+                Context snippet to analyze.
+            task : str
+                Task/instruction for the sub-LLM.
 
             Returns
             -------
@@ -163,6 +177,7 @@ class RLM:
                 stats.recursive_calls += 1
                 stats.llm_calls += 1
 
+            prompt = f"Context:\n{snippet}\n\nTask: {task}"
             self._log(f"Recursive call (depth={current_depth + 1}): {prompt[:100]}...")
 
             messages = [
@@ -308,6 +323,70 @@ class RLM:
 
         return all_output, None
 
+    def _check_guards(
+        self,
+        stats: RLMStats,
+        history: list[dict[str, Any]],
+        start_time: float,
+    ) -> RLMResult | None:
+        """Check timeout and token budget guards.
+
+        Returns
+        -------
+        RLMResult | None
+            Error result if a guard tripped, otherwise None.
+        """
+        import time
+
+        if self.timeout and (time.monotonic() - start_time) > self.timeout:
+            self._log("Timeout reached")
+            return RLMResult(
+                answer="",
+                stats=stats,
+                history=history,
+                success=False,
+                error=f"Timeout after {self.timeout}s",
+            )
+        total_tokens = stats.total_input_tokens + stats.total_output_tokens
+        if self.max_token_budget and total_tokens > self.max_token_budget:
+            self._log("Token budget exceeded")
+            return RLMResult(
+                answer="",
+                stats=stats,
+                history=history,
+                success=False,
+                error=f"Token budget exceeded: {total_tokens} > {self.max_token_budget}",
+            )
+        return None
+
+    def _handle_no_code_blocks(
+        self,
+        response: str,
+        repl: REPLEnv,
+        messages: list[dict[str, str]],
+    ) -> bool:
+        """Handle an LLM response that contains no Python code blocks.
+
+        Returns
+        -------
+        bool
+            True if the loop should break (FINAL detected), False to continue.
+        """
+        self._log("No python code blocks found in LLM response")
+        if self.verbose:
+            preview = response[:300].replace("\n", "\n  ")
+            self._log(f"Response preview:\n  {preview}")
+
+        if "FINAL" in response or repl.final_answer:
+            self._log("FINAL detected in response text, ending loop")
+            return True
+
+        self._log("Prompting LLM to provide Python code")
+        messages.append(
+            {"role": "user", "content": "Please provide Python code to explore CONTEXT."}
+        )
+        return False
+
     def completion(
         self, context: str | Path | list[Path] | CompositeContext, query: str
     ) -> RLMResult:
@@ -330,6 +409,8 @@ class RLM:
         RLMResult
             Result with answer and statistics.
         """
+        import time
+
         stats = RLMStats()
         self._last_stats = stats
         history: list[dict[str, Any]] = []
@@ -343,7 +424,7 @@ class RLM:
         )
 
         # Build conversation with injected document sample
-        context_sample = self._build_context_sample(repl)
+        context_sample = self._build_context_sample(repl) if self.include_context_sample else ""
         messages = [
             {"role": "system", "content": get_system_prompt(self.compact_prompt)},
             {"role": "user", "content": get_user_prompt(query, context_sample)},
@@ -357,8 +438,14 @@ class RLM:
         system_prompt = get_system_prompt(self.compact_prompt)
         self._log(f"System prompt length: {len(system_prompt):,} chars")
 
+        start_time = time.monotonic()
+
         # Main iteration loop
         for iteration in range(self.max_iterations):
+            guard_result = self._check_guards(stats, history, start_time)
+            if guard_result is not None:
+                return guard_result
+
             stats.iterations = iteration + 1
             stats.llm_calls += 1
 
@@ -399,24 +486,8 @@ class RLM:
             code_blocks = self._extract_code_blocks(response)
 
             if not code_blocks:
-                self._log("No python code blocks found in LLM response")
-                if self.verbose:
-                    preview = response[:300].replace("\n", "\n  ")
-                    self._log(f"Response preview:\n  {preview}")
-
-                # Check if LLM provided a direct answer
-                if "FINAL" in response or repl.final_answer:
-                    self._log("FINAL detected in response text, ending loop")
+                if self._handle_no_code_blocks(response, repl, messages):
                     break
-
-                # Prompt for code
-                self._log("Prompting LLM to provide Python code")
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": "Please provide Python code to explore CONTEXT.",
-                    }
-                )
                 continue
 
             # Execute code blocks

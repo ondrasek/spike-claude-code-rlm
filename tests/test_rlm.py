@@ -146,30 +146,30 @@ class TestCreateLlmQueryFn:
     """Tests for _create_llm_query_fn."""
 
     def test_returns_callable(self, echo_backend: CallbackBackend) -> None:
-        rlm = RLM(backend=echo_backend)
+        rlm = RLM(backend=echo_backend, model="test-model")
         fn = rlm._create_llm_query_fn("some context")
         assert callable(fn)
 
     def test_callable_returns_llm_response(self, echo_backend: CallbackBackend) -> None:
-        rlm = RLM(backend=echo_backend)
+        rlm = RLM(backend=echo_backend, model="test-model")
         fn = rlm._create_llm_query_fn("context")
         fn.bind_stats(RLMStats())  # type: ignore[attr-defined]
-        result = fn("hello")
+        result = fn("snippet", "task")
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_max_depth_returns_error(self, echo_backend: CallbackBackend) -> None:
-        rlm = RLM(backend=echo_backend, max_depth=2)
+        rlm = RLM(backend=echo_backend, model="test-model", max_depth=2)
         fn = rlm._create_llm_query_fn("context", current_depth=2)
-        result = fn("any prompt")
+        result = fn("snippet", "any task")
         assert "Maximum recursion depth reached" in result
 
     def test_stats_binding_increments_recursive_calls(self, echo_backend: CallbackBackend) -> None:
-        rlm = RLM(backend=echo_backend)
+        rlm = RLM(backend=echo_backend, model="test-model")
         fn = rlm._create_llm_query_fn("context")
         stats = RLMStats()
         fn.bind_stats(stats)  # type: ignore[attr-defined]
-        fn("test prompt")
+        fn("snippet", "test task")
         assert stats.recursive_calls == 1
         assert stats.llm_calls == 1
 
@@ -185,7 +185,7 @@ class TestLog:
     def test_prints_when_verbose(
         self, echo_backend: CallbackBackend, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        rlm = RLM(backend=echo_backend, verbose=True)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=True)
         rlm._log("test message")
         captured = capsys.readouterr()
         assert "[RLM] test message" in captured.out
@@ -193,7 +193,7 @@ class TestLog:
     def test_silent_when_not_verbose(
         self, echo_backend: CallbackBackend, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        rlm = RLM(backend=echo_backend, verbose=False)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=False)
         rlm._log("test message")
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -210,7 +210,7 @@ class TestLogContextSize:
     def test_string_context_logs_char_count(
         self, echo_backend: CallbackBackend, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        rlm = RLM(backend=echo_backend, verbose=True)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=True)
         rlm._log_context_size("hello world")
         captured = capsys.readouterr()
         assert "11" in captured.out
@@ -222,7 +222,7 @@ class TestLogContextSize:
         tmp_text_file: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        rlm = RLM(backend=echo_backend, verbose=True)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=True)
         rlm._log_context_size(tmp_text_file)
         captured = capsys.readouterr()
         assert "bytes" in captured.out
@@ -234,7 +234,7 @@ class TestLogContextSize:
         composite_context: CompositeContext,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        rlm = RLM(backend=echo_backend, verbose=True)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=True)
         rlm._log_context_size(composite_context)
         captured = capsys.readouterr()
         assert "files" in captured.out
@@ -248,7 +248,7 @@ class TestLogContextSize:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         paths = sorted(tmp_multifile_dir.glob("*.txt"))
-        rlm = RLM(backend=echo_backend, verbose=True)
+        rlm = RLM(backend=echo_backend, model="test-model", verbose=True)
         rlm._log_context_size(paths)
         captured = capsys.readouterr()
         assert "files" in captured.out
@@ -266,7 +266,7 @@ class TestExecuteCodeBlocks:
     def _make_rlm(self, backend: CallbackBackend | None = None) -> RLM:
         if backend is None:
             backend = make_deterministic_callback(["unused"])
-        return RLM(backend=backend)
+        return RLM(backend=backend, model="test-model")
 
     def test_successful_execution(self) -> None:
         from rlm.repl import REPLEnv
@@ -315,7 +315,7 @@ class TestCompletion:
 
     def test_successful_completion(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = rlm.completion(SAMPLE_TEXT, "What is the answer?")
         assert result.success is True
         assert "42" in result.answer
@@ -323,7 +323,7 @@ class TestCompletion:
     def test_max_iterations_returns_error(self) -> None:
         # Backend that never calls FINAL — just keeps printing
         backend = make_deterministic_callback(['```python\nprint("looping")\n```'])
-        rlm = RLM(backend=backend, max_iterations=3)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=3)
         result = rlm.completion(SAMPLE_TEXT, "query")
         assert result.success is False
         assert "Maximum iterations" in (result.error or "")
@@ -333,7 +333,7 @@ class TestCompletion:
             raise RuntimeError("backend exploded")
 
         backend = CallbackBackend(_raise)
-        rlm = RLM(backend=backend, max_iterations=5)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5)
         result = rlm.completion(SAMPLE_TEXT, "query")
         assert result.success is False
         assert "backend exploded" in (result.error or "")
@@ -345,14 +345,14 @@ class TestCompletion:
             '```python\nFINAL("got it")\n```',
         ]
         backend = make_deterministic_callback(responses)
-        rlm = RLM(backend=backend, max_iterations=5)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5)
         result = rlm.completion(SAMPLE_TEXT, "query")
         assert result.success is True
         assert "got it" in result.answer
 
     def test_stats_populated(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = rlm.completion(SAMPLE_TEXT, "query")
         assert result.stats.iterations >= 1
         assert result.stats.llm_calls >= 1
@@ -367,7 +367,7 @@ class TestCostSummary:
     """Tests for cost_summary."""
 
     def test_before_completion_returns_zeros(self, echo_backend: CallbackBackend) -> None:
-        rlm = RLM(backend=echo_backend)
+        rlm = RLM(backend=echo_backend, model="test-model")
         summary = rlm.cost_summary()
         assert summary["iterations"] == 0
         assert summary["llm_calls"] == 0
@@ -375,7 +375,7 @@ class TestCostSummary:
 
     def test_after_completion_returns_populated(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         rlm.completion(SAMPLE_TEXT, "query")
         summary = rlm.cost_summary()
         assert summary["iterations"] > 0
@@ -392,7 +392,92 @@ class TestACompletion:
 
     def test_delegates_to_sync(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = asyncio.run(rlm.acompletion(SAMPLE_TEXT, "query"))
         assert result.success is True
         assert "42" in result.answer
+
+
+# =====================================================================
+# RLM.include_context_sample
+# =====================================================================
+
+
+class TestNoContextSample:
+    """Tests for the include_context_sample flag."""
+
+    def test_context_sample_skipped_when_disabled(self) -> None:
+        backend = make_final_in_two_iterations_callback()
+        rlm = RLM(
+            backend=backend,
+            model="test-model",
+            max_iterations=10,
+            include_context_sample=False,
+        )
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        # Verify the answer still works — the LLM loop completed
+        assert len(result.answer) > 0
+
+
+# =====================================================================
+# RLM.timeout and max_token_budget
+# =====================================================================
+
+
+class TestTimeoutGuard:
+    """Tests for the timeout guard."""
+
+    def test_timeout_returns_error(self) -> None:
+        """A tiny timeout should trip before the loop finishes."""
+        import time
+
+        call_count = {"n": 0}
+
+        def _slow(messages: list[dict[str, str]], model: str) -> str:
+            call_count["n"] += 1
+            time.sleep(0.1)
+            return '```python\nprint("still going")\n```'
+
+        backend = CallbackBackend(_slow)
+        rlm = RLM(
+            backend=backend,
+            model="test-model",
+            max_iterations=50,
+            timeout=0.05,
+        )
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is False
+        assert "Timeout" in (result.error or "")
+
+
+class TestTokenBudgetGuard:
+    """Tests for the max_token_budget guard."""
+
+    def test_token_budget_returns_error(self) -> None:
+        """Token budget should trip when usage exceeds the limit."""
+        from rlm.backends import CompletionResult, TokenUsage
+
+        def _cb(messages: list[dict[str, str]], model: str) -> str:
+            return '```python\nprint("running")\n```'
+
+        # Create a backend that reports non-zero token usage
+        class TokenCountingBackend(CallbackBackend):
+            def completion(
+                self, messages: list[dict[str, str]], model: str, **kwargs: object
+            ) -> CompletionResult:
+                return CompletionResult(
+                    text=self.callback_fn(messages, model),
+                    usage=TokenUsage(input_tokens=500, output_tokens=500),
+                )
+
+        backend = TokenCountingBackend(_cb)
+        rlm = RLM(
+            backend=backend,
+            model="test-model",
+            max_iterations=50,
+            max_token_budget=100,
+        )
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is False
+        assert "Token budget exceeded" in (result.error or "")

@@ -33,17 +33,14 @@ it may be very large.
 files are loaded. Check with `"FILES" in dir()`.
 
 ### Functions
-- `llm_query(prompt: str) -> str`: Call a sub-LLM instance to process text. Use this to:
+- `llm_query(snippet: str, task: str) -> str`: Call a sub-LLM to process text. Use this to:
   - Summarize sections of CONTEXT
   - Extract specific information from chunks
   - Analyze sub-sections recursively
+  The first argument is the context snippet, the second is the task/instruction.
 
 - `FINAL(answer: str)`: Set the final answer and complete the task.
   Call this when you're ready to return your final answer.
-
-- `FINAL_VAR(var_name: str)`: Set a variable as the final answer.
-  Alternative to FINAL() if you've built your answer in a variable.
-  The named variable must exist in the current namespace.
 
 - `SHOW_VARS()`: Print all user-defined variables in the current namespace.
 
@@ -105,7 +102,7 @@ for i, line in enumerate(CONTEXT.splitlines()):
 ### Chunk and delegate analysis to llm_query
 ```python
 chunk = CONTEXT[0:3000]
-summary = llm_query(f"Summarize this section:\\n{chunk}")
+summary = llm_query(chunk, "Summarize this section")
 print(summary)
 ```
 
@@ -149,7 +146,7 @@ Answer the query by writing Python code to explore CONTEXT.
   - `re.search(pattern, CONTEXT)` — first regex match
   - `CONTEXT.splitlines()` — iterate lines
   - Multi-file: `FILES` dict (check `"FILES" in dir()`)
-- `llm_query(prompt: str) -> str`: Call sub-LLM to analyze text
+- `llm_query(snippet: str, task: str) -> str`: Call sub-LLM to analyze text
 - `FINAL(answer: str)`: Return final answer
 - `SHOW_VARS()`: List user-defined variables
 - Modules: `re`, `json`, `math`, `collections`, `itertools`
@@ -162,7 +159,7 @@ Answer the query by writing Python code to explore CONTEXT.
 1. Inspect: A document sample is provided below the query. Read it to understand the format.
 2. Search: Start BROAD (e.g. find all lines containing a keyword), inspect the matches to
    discover format variations, then refine. Never FINAL() with empty or incomplete results.
-3. Chunk: Process sections with `llm_query(CONTEXT[start:end])`
+3. Chunk: Process sections with `llm_query(CONTEXT[start:end], "your task")`
 4. Synthesize: Call `FINAL(answer)` when done
 
 Write Python code to explore CONTEXT and answer the query.

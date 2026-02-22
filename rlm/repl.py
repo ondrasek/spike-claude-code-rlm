@@ -158,7 +158,6 @@ _REPL_INTERNALS = frozenset(
         "SHOW_VARS",
         "llm_query",
         "FINAL",
-        "FINAL_VAR",
         "re",
         "json",
         "math",
@@ -187,7 +186,7 @@ class REPLEnv:
     - FILES dict (``{filename: content_str}``) when multiple files are loaded
     - SHOW_VARS() helper to list user-defined variables
     - llm_query() function for recursive LLM calls
-    - FINAL() and FINAL_VAR() for returning results
+    - FINAL() for returning results
     - Pre-imported modules: re, json, math, collections, itertools
 
     The namespace is preserved across ``execute()`` calls within the same
@@ -198,7 +197,7 @@ class REPLEnv:
     def __init__(
         self,
         context: str | Path | list[Path] | CompositeContext,
-        llm_query_fn: Callable[[str], str],
+        llm_query_fn: Callable[[str, str], str],
         max_output_length: int = 10000,
     ) -> None:
         """Initialize REPL environment.
@@ -213,8 +212,8 @@ class REPLEnv:
             * ``list[Path]`` — multiple files wrapped in
               :class:`CompositeContext`, then materialized.
             * ``CompositeContext`` — materialized to ``str``.
-        llm_query_fn : Callable[[str], str]
-            Function to call for recursive LLM queries.
+        llm_query_fn : Callable[[str, str], str]
+            Function to call for recursive LLM queries (snippet, task).
         max_output_length : int
             Maximum length of captured output.
         """
@@ -227,7 +226,6 @@ class REPLEnv:
         self.max_output_length = max_output_length
         self.final_answer: str | None = None
         self.output_buffer: list[str] = []
-        self._pending_final_var: str | None = None
 
         # Persistent namespace — survives across execute() calls.
         self._namespace: dict[str, Any] = self._build_namespace()
@@ -255,7 +253,6 @@ class REPLEnv:
             "CONTEXT": self.context_str,
             "llm_query": self._llm_query,
             "FINAL": self._final,
-            "FINAL_VAR": self._final_var,
             "SHOW_VARS": self._show_vars,
             "re": re,
             "json": json,
@@ -282,20 +279,22 @@ class REPLEnv:
         output = sep.join(str(arg) for arg in args) + end
         self.output_buffer.append(output)
 
-    def _llm_query(self, prompt: str) -> str:
+    def _llm_query(self, snippet: str, task: str) -> str:
         """Wrapper for LLM query function.
 
         Parameters
         ----------
-        prompt : str
-            Query to send to the LLM.
+        snippet : str
+            Context snippet to analyze.
+        task : str
+            Task/instruction for the sub-LLM.
 
         Returns
         -------
         str
             LLM response string.
         """
-        return self.llm_query_fn(prompt)
+        return self.llm_query_fn(snippet, task)
 
     def _final(self, answer: str) -> None:
         """Set the final answer.
@@ -306,19 +305,6 @@ class REPLEnv:
             Final answer string.
         """
         self.final_answer = answer
-
-    def _final_var(self, var_name: str) -> None:
-        """Mark a variable as the final answer.
-
-        The variable will be looked up in the execution namespace after the
-        current code block finishes executing.
-
-        Parameters
-        ----------
-        var_name : str
-            Name of the variable whose value should be used as the final answer.
-        """
-        self._pending_final_var = var_name
 
     def execute(self, code: str) -> REPLResult:
         """Execute Python code in the REPL environment.
@@ -337,31 +323,11 @@ class REPLEnv:
             Result with output, final answer, and any errors.
         """
         # Reset per-execution state (but NOT self.final_answer — that is only
-        # set by explicit FINAL() / FINAL_VAR() calls within the code).
+        # set by explicit FINAL() calls within the code).
         self.output_buffer = []
-        self._pending_final_var = None
 
         try:
             exec(code, self._namespace)  # noqa: S102  # nosec B102
-
-            # Resolve FINAL_VAR if it was called during execution.
-            if self.final_answer is None and self._pending_final_var is not None:
-                var_name = self._pending_final_var
-                if var_name in self._namespace:
-                    self.final_answer = str(self._namespace[var_name])
-                else:
-                    return REPLResult(
-                        output="".join(self.output_buffer),
-                        error=f"FINAL_VAR: variable '{var_name}' not found in namespace",
-                        success=False,
-                    )
-
-            # Fall back to variables prefixed with ``final_`` (legacy behaviour).
-            if self.final_answer is None:
-                for key, value in self._namespace.items():
-                    if key.startswith("final_") and not key.startswith("__"):
-                        self.final_answer = str(value)
-                        break
 
             # Collect output — join without extra separator since _capture_print
             # already appends the ``end`` string per call.

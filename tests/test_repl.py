@@ -126,28 +126,12 @@ class TestREPLEnvPrintCapture:
 
 
 class TestREPLEnvFinal:
-    """Tests for FINAL() and FINAL_VAR()."""
+    """Tests for FINAL()."""
 
     def test_final_sets_answer(self, repl_env: REPLEnv) -> None:
         result = repl_env.execute('FINAL("the answer")')
         assert result.success is True
         assert result.final_answer == "the answer"
-
-    def test_final_var_sets_answer(self, repl_env: REPLEnv) -> None:
-        result = repl_env.execute('my_result = "computed"\nFINAL_VAR("my_result")')
-        assert result.success is True
-        assert result.final_answer == "computed"
-
-    def test_final_var_missing_variable(self, repl_env: REPLEnv) -> None:
-        result = repl_env.execute('FINAL_VAR("nonexistent")')
-        assert result.success is False
-        assert "nonexistent" in (result.error or "")
-        assert "not found" in (result.error or "")
-
-    def test_fallback_final_prefix_variable(self, repl_env: REPLEnv) -> None:
-        result = repl_env.execute('final_summary = "auto-detected answer"')
-        assert result.success is True
-        assert result.final_answer == "auto-detected answer"
 
 
 class TestREPLEnvNamespacePersistence:
@@ -164,7 +148,9 @@ class TestREPLEnvLlmQuery:
     """Tests for llm_query integration."""
 
     def test_llm_query_calls_provided_function(self, repl_env: REPLEnv) -> None:
-        result = repl_env.execute('response = llm_query("test prompt")\nprint(response)')
+        result = repl_env.execute(
+            'response = llm_query("some snippet", "test task")\nprint(response)'
+        )
         assert result.success is True
         assert "[mock response to:" in result.output
 

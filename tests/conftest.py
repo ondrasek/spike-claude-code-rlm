@@ -165,9 +165,9 @@ def final_two_iter_backend() -> CallbackBackend:
 # ---------------------------------------------------------------------------
 
 
-def noop_llm_query(prompt: str) -> str:
+def noop_llm_query(snippet: str, task: str) -> str:
     """No-op LLM query function."""
-    return f"[mock response to: {prompt[:50]}]"
+    return f"[mock response to: {task[:50]}]"
 
 
 @pytest.fixture()

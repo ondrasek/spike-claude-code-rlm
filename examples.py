@@ -78,7 +78,7 @@ def example_structured_data() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend, verbose=True)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514", verbose=True)
 
     # Large JSON log file
     with open("server_logs.json") as f:
@@ -99,7 +99,7 @@ async def example_async() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514")
 
     with open("document.txt") as f:
         context = f.read()
@@ -115,7 +115,7 @@ def example_error_handling() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend, max_iterations=5)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514", max_iterations=5)
 
     with open("document.txt") as f:
         context = f.read()
@@ -141,7 +141,7 @@ def example_code_analysis() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend, verbose=True)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514", verbose=True)
 
     # Concatenate all Python files
     repo_path = Path("my_project")
@@ -164,7 +164,7 @@ def example_document_comparison() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514")
 
     with open("doc1.txt") as f1, open("doc2.txt") as f2:
         doc1 = f1.read()
@@ -187,7 +187,7 @@ def example_research_paper() -> None:
     from rlm.backends import AnthropicBackend
 
     backend = AnthropicBackend()
-    rlm = RLM(backend, verbose=True)
+    rlm = RLM(backend, model="claude-sonnet-4-20250514", verbose=True)
 
     with open("paper.txt") as f:
         context = f.read()

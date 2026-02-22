@@ -13,7 +13,7 @@ Example:
     >>> from rlm.backends import AnthropicBackend
     >>>
     >>> backend = AnthropicBackend()
-    >>> rlm = RLM(backend, verbose=True)
+    >>> rlm = RLM(backend, model="claude-sonnet-4-20250514", verbose=True)
     >>>
     >>> with open("document.txt") as f:
     ...     context = f.read()

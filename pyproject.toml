@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Recursive Language Model - Python 3.11+ implementation"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-license = {text = "BSD-2-Clause"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Ondrej Krajicek"}
 ]
@@ -16,7 +16,7 @@ keywords = ["ai", "llm", "recursive", "language-model", "rlm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: BSD License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

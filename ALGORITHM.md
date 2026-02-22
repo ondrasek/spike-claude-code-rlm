@@ -12,30 +12,31 @@ User Query + Context (file/dir/string)
         │
         ▼
 1. Materialize context → plain Python str
-2. Build "context sample" (evenly-spaced excerpts showing size + structure)
-3. Create depth-tracked llm_query() closure (max_depth=3)
+2. Optionally build "context sample" (--no-context-sample disables)
+3. Create depth-tracked llm_query(snippet, task) closure (max_depth=3)
 4. Initialize REPLEnv with namespace: CONTEXT, FILES, llm_query, FINAL,
-   FINAL_VAR, SHOW_VARS, pre-imported modules
+   SHOW_VARS, pre-imported modules
         │
         ▼
-5. Send to LLM: system prompt (full/compact) + user query + context sample
+5. Send to LLM: system prompt (full/compact) + user query [+ context sample]
         │
         ▼
-┌─── Iteration Loop (max_iterations=10) ───┐
+┌─── Iteration Loop (max_iterations, timeout, token budget) ──┐
 │                                           │
-│  6. LLM responds with markdown            │
-│  7. Extract ```python blocks (regex)      │
-│  8. If no code blocks:                    │
+│  6. Check timeout / token budget guards   │
+│  7. LLM responds with markdown            │
+│  8. Extract ```python blocks (regex)      │
+│  9. If no code blocks:                    │
 │       - Check for "FINAL" in text → done  │
 │       - Else prompt LLM to write code     │
-│  9. Execute each code block sequentially  │
+│ 10. Execute each code block sequentially  │
 │       in persistent REPL namespace        │
-│ 10. If FINAL()/FINAL_VAR() called → done  │
-│ 11. Feed captured print() output back     │
+│ 11. If FINAL() called → done              │
+│ 12. Feed captured print() output back     │
 │       as user message: "Output:\n..."     │
-│ 12. Continue loop                         │
+│ 13. Continue loop                         │
 │                                           │
-└───────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────┘
         │
         ▼
 Return RLMResult(answer, stats, history)
@@ -83,12 +84,13 @@ Return final answer
 
 | Aspect | Paper | Our Implementation | Delta |
 |--------|-------|--------------------|-------|
-| **Initial context exposure** | Root LM sees only the query; CONTEXT is opaque until code runs | Context sample (evenly-spaced excerpts) included in initial message | We leak structure upfront — helpful but diverges from the paper's "context as environment" principle |
-| **`llm_query` signature** | `llm_query(snippet, task)` — two args | `llm_query(prompt)` — one arg (user builds the prompt) | Paper separates context snippet from task; ours conflates them |
+| **Initial context exposure** | Root LM sees only the query; CONTEXT is opaque until code runs | Context sample included by default; `--no-context-sample` disables it | **Aligned** — can now match paper's opaque-context design via flag |
+| **`llm_query` signature** | `llm_query(snippet, task)` — two args | `llm_query(snippet, task)` — two args | **Match** |
 | **Recursive depth** | Depth-1 only (root → sub-LM, no deeper) | Configurable `max_depth=3` (supports multi-level recursion) | We're ahead of the paper here |
-| **Sub-LM model** | Smaller/cheaper model for sub-calls (e.g., GPT-5-mini when root is GPT-5) | `recursive_model` param exists but defaults to same model as root | Paper's design is more cost-efficient |
+| **Sub-LM model** | Smaller/cheaper model for sub-calls (e.g., GPT-5-mini when root is GPT-5) | `--recursive-model` param exists but defaults to same model as `--model` | Paper's design is more cost-efficient |
 | **System prompt for sub-calls** | Not detailed | No system prompt — bare user message only | Consistent but sub-calls might benefit from minimal guidance |
-| **Termination** | `FINAL()` + max iterations + timeouts | `FINAL()` + `FINAL_VAR()` + `final_` prefix fallback + max iterations | We have more termination paths; `FINAL_VAR` is partially broken |
+| **Termination** | `FINAL()` + max iterations + timeouts | `FINAL()` + max iterations + `--timeout` + `--max-token-budget` | **Match** |
+| **Default model** | Not applicable (paper uses specific models per experiment) | `--model` is required (no defaults) | **Aligned** — user must choose explicitly |
 | **Code extraction** | Not specified in detail | Regex: `` ```python\n(.*?)``` `` — only explicitly tagged Python blocks | Reasonable; ignores non-Python fenced blocks |
 | **Sandbox isolation** | Rootless container (security delegated to runtime) | Safe builtins whitelist (no `__import__`, `open`, `exec`) + container delegation | We add in-process restrictions on top of container isolation |
 | **Output truncation** | Mentioned (first ~10K chars) | 10,000 char cap per execution | Match |
@@ -96,47 +98,32 @@ Return final answer
 | **Context loading** | Context as string | Memory-mapped files via `LazyContext`, `CompositeContext` for multi-file | Engineering refinement beyond the paper |
 | **Async execution** | Identified as future work | Stubs exist (`acompletion`) but delegate to sync | Neither implements true async |
 | **Native post-training** | RLM-Qwen3-8B (28.3% improvement over base) | Prompt-only, no fine-tuning | Paper has a training component we don't |
-| **Cost tracking** | Discussed (comparable median, high variance tail) | `RLMStats` tracks tokens, iterations, recursive calls | We track but don't enforce cost limits |
+| **Cost tracking** | Discussed (comparable median, high variance tail) | `RLMStats` tracks tokens, iterations, recursive calls; `--max-token-budget` enforces limits | **Aligned** — cost enforcement now available |
 | **Verification strategy** | Some models perform redundant verification sub-calls | Not prompted for; up to the LLM | Paper observes this as emergent behavior |
 
 ---
 
-## Key Divergences
+## Remaining Divergences
 
-### 1. Context Sample in Initial Prompt (our addition)
+### 1. Context Sample in Initial Prompt (our addition, now optional)
 
-**Our approach** (`_build_context_sample()`): Sends evenly-spaced 500-char excerpts
-from the document (beginning, ~25%, ~50%, ~75%, end) in the first message.
+**Our approach** (`_build_context_sample()`): By default, sends evenly-spaced 500-char
+excerpts from the document in the first message. Can be disabled with `--no-context-sample`
+to match the paper's opaque-context design.
 
 **Paper's approach**: Root LM only knows CONTEXT exists. It must write code to inspect it.
 
-**Trade-off**: Our approach gives the LLM a head start (knows the format, size, structure
-immediately) but adds tokens to the initial prompt and partially undermines the "context as
-environment" paradigm. The paper argues the power of RLM is that the root LM's context
-window never grows beyond query + REPL output.
+**Trade-off**: The default gives the LLM a head start (knows format, size, structure
+immediately) but adds tokens to the initial prompt. Use `--no-context-sample` for the
+paper's strict "context as environment" paradigm.
 
-### 2. Single-arg vs Two-arg `llm_query`
+### 2. Multi-level Recursion (our extension)
 
-**Paper**: `llm_query(snippet, task)` — cleanly separates the context chunk from the
-instruction.
+**Paper**: Depth-1 only (root → sub-LM, no deeper).
 
-**Ours**: `llm_query(prompt)` — the LLM must construct a single prompt string containing
-both the snippet and the task.
+**Ours**: Configurable `max_depth=3` (supports multi-level recursion).
 
-**Impact**: The two-arg version is more structured and could allow the system to format
-sub-calls more consistently (e.g., always putting the snippet in a designated section).
-
-### 3. `FINAL_VAR` Is Broken
-
-Per CLAUDE.md: "`_final_var` is a no-op; the fallback logic checks for `final_` prefixed
-variables in the namespace instead." This means `FINAL_VAR("my_result")` doesn't actually
-look up `my_result` — it falls back to scanning for variables named `final_*`.
-
-### 4. No Cost/Timeout Guards
-
-The paper mentions cost limits and timeouts as practical safeguards. Our implementation
-only has `max_iterations` (default 10) and `max_depth` (default 3). No wall-clock timeout
-or token budget enforcement.
+This is an intentional extension beyond the paper's design.
 
 ---
 
@@ -161,9 +148,5 @@ prompting.
 
 Actionable items identified by this comparison:
 
-- **Fix `FINAL_VAR` implementation** — make `_final_var` actually look up the named variable
-- **Make context sample optional** — consider removing or gating behind a flag to match the paper's opaque-context design
-- **Two-arg `llm_query(snippet, task)` signature** — align with the paper for cleaner sub-call semantics
-- **Add cost/timeout guards** — wall-clock timeout and token budget enforcement
-- **Default to a cheaper model for recursive sub-calls** — leverage `recursive_model` param with a smaller default
+- **Default to a cheaper model for recursive sub-calls** — leverage `--recursive-model` param with a smaller default
 - **Evaluate prompt prescriptiveness** — test whether our detailed prompts help or constrain the LLM compared to the paper's minimal approach

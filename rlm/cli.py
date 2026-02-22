@@ -115,29 +115,6 @@ def _resolve_ollama_url(base_url_override: str | None) -> str:
     return f"{ollama_host.rstrip('/')}/v1"
 
 
-# Per-backend default models (used when --model is not specified).
-_BACKEND_DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4o",
-    "openrouter": "anthropic/claude-sonnet-4",
-    "huggingface": "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "ollama": "qwen3-coder:32b",
-    "claude": "claude-sonnet-4-20250514",
-}
-
-
-def _resolve_model(args: argparse.Namespace) -> None:
-    """Fill in the default model when the user didn't pass ``--model``.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed CLI arguments (mutated in place).
-    """
-    if args.model is None:
-        args.model = _BACKEND_DEFAULT_MODELS.get(args.backend, "claude-sonnet-4-20250514")
-
-
 # Keyed OpenAI-compatible presets: backend_name -> (display_name, env_var, default_url).
 _OPENAI_COMPAT_PRESETS: dict[str, tuple[str, str, str]] = {
     "openai": ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1"),
@@ -199,8 +176,6 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
     ValueError
         If a required API key environment variable is missing.
     """
-    _resolve_model(args)
-
     if args.backend == "anthropic":
         if not os.getenv("ANTHROPIC_API_KEY"):
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
@@ -291,8 +266,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default=None,
-        help="Model identifier (default depends on backend)",
+        required=True,
+        help="Model identifier (required)",
     )
     parser.add_argument(
         "--base-url",
@@ -347,6 +322,23 @@ def main() -> int:
         help="Maximum tokens per LLM response (default: 4096)",
     )
     parser.add_argument(
+        "--no-context-sample",
+        action="store_true",
+        help="Don't include document sample in initial prompt",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Wall-clock timeout in seconds",
+    )
+    parser.add_argument(
+        "--max-token-budget",
+        type=int,
+        default=None,
+        help="Maximum total tokens (input + output)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -387,6 +379,9 @@ def main() -> int:
         max_tokens=args.max_tokens,
         verbose=args.verbose,
         compact_prompt=args.compact,
+        include_context_sample=not args.no_context_sample,
+        timeout=args.timeout,
+        max_token_budget=args.max_token_budget,
     )
 
     return _run_completion(rlm, context, args.query)

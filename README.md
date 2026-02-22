@@ -37,8 +37,8 @@ This approach enables processing of documents **far exceeding** typical context 
 ┌─────────────────────────────────────────────────────────┐
 │                    REPL Environment                      │
 │  • CONTEXT variable (holds the massive text)             │
-│  • llm_query(prompt) function for recursive calls        │
-│  • FINAL(answer) / FINAL_VAR(var) for returning results  │
+│  • llm_query(snippet, task) for recursive calls           │
+│  • FINAL(answer) for returning results                    │
 │  • Isolation delegated to container runtime               │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -87,19 +87,19 @@ print(rlm.cost_summary())
 ### Using OpenAI
 
 ```bash
-OPENAI_API_KEY=... uvx --with openai rlm --backend openai --context-file doc.txt --query "Summarize"
+OPENAI_API_KEY=... uvx --with openai rlm --backend openai --model gpt-4o --context-file doc.txt --query "Summarize"
 ```
 
 ### Using OpenRouter
 
 ```bash
-OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --context-file doc.txt --query "Summarize"
+OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --model anthropic/claude-sonnet-4 --context-file doc.txt --query "Summarize"
 ```
 
 ### Using Hugging Face
 
 ```bash
-HF_TOKEN=... uvx --with openai rlm --backend huggingface --context-file doc.txt --query "Summarize"
+HF_TOKEN=... uvx --with openai rlm --backend huggingface --model Qwen/Qwen2.5-Coder-32B-Instruct --context-file doc.txt --query "Summarize"
 ```
 
 ### Using Local Models (Ollama)
@@ -137,7 +137,7 @@ python demo.py --context-file /path/to/document.txt --query "Your question here"
 ```python
 RLM(
     backend: LLMBackend,           # Backend instance
-    model: str = "claude-sonnet-4-20250514",  # Root LLM model
+    model: str,                    # Root LLM model (required)
     recursive_model: str = None,   # Model for llm_query (defaults to model)
     max_iterations: int = 10,      # Max REPL iterations
     max_depth: int = 3,            # Max recursion depth for llm_query
@@ -165,21 +165,23 @@ class RLMResult:
 
 ### Backends
 
-| Backend | Use Case | Default Model |
-|---------|----------|---------------|
-| `AnthropicBackend` | Direct Anthropic API | `claude-sonnet-4-20250514` |
-| `OpenAICompatibleBackend` | OpenAI, OpenRouter, Hugging Face, Ollama, vLLM, etc. | (varies by preset) |
+| Backend | Use Case |
+|---------|----------|
+| `AnthropicBackend` | Direct Anthropic API |
+| `OpenAICompatibleBackend` | OpenAI, OpenRouter, Hugging Face, Ollama, vLLM, etc. |
+
+**Note:** `--model` is required for all backends.
 
 #### CLI Backend Presets
 
-| `--backend` | Provider | API Key Env Var | Default Model |
-|---|---|---|---|
-| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| `openai` | OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
-| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
-| `huggingface` | Hugging Face | `HF_TOKEN` | `Qwen/Qwen2.5-Coder-32B-Instruct` |
-| `ollama` | Ollama (local) | *(none)* | `qwen3-coder:32b` |
-| `claude` | Claude CLI | *(none)* | `claude-sonnet-4-20250514` |
+| `--backend` | Provider | API Key Env Var |
+|---|---|---|
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` |
+| `openai` | OpenAI | `OPENAI_API_KEY` |
+| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` |
+| `huggingface` | Hugging Face | `HF_TOKEN` |
+| `ollama` | Ollama (local) | *(none)* |
+| `claude` | Claude CLI | *(none)* |
 
 ## REPL Environment
 
@@ -188,9 +190,8 @@ The REPL provides these to the LLM:
 | Name | Type | Description |
 |------|------|-------------|
 | `CONTEXT` | str | The full document (never print directly!) |
-| `llm_query(prompt)` | function | Call sub-LLM, returns string |
+| `llm_query(snippet, task)` | function | Call sub-LLM, returns string |
 | `FINAL(answer)` | function | Set final answer and complete |
-| `FINAL_VAR(var_name)` | function | Set variable as final answer |
 | `re`, `json`, `math`, `collections`, `itertools` | modules | Pre-imported |
 
 **Isolation:** The REPL is designed to run inside a rootless container. No in-process sandboxing is applied.
@@ -245,6 +246,6 @@ spike-claude-code-rlm/
 
 ## License
 
-BSD 2-Clause License - See [LICENSE](LICENSE) file for details.
+Apache License 2.0 - See [LICENSE](LICENSE) file for details.
 
 Based on research by Alex L. Zhang, Tim Kraska, and Omar Khattab (MIT CSAIL).

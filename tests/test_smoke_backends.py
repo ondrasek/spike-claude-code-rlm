@@ -19,7 +19,6 @@ import os
 import pytest
 
 from rlm.backends import OpenAICompatibleBackend
-from rlm.cli import _BACKEND_DEFAULT_MODELS
 from rlm.rlm import RLM, RLMResult
 
 # ---------------------------------------------------------------------------
@@ -69,10 +68,17 @@ def _require_env(env_var: str) -> str:
     return value
 
 
+_SMOKE_MODELS: dict[str, str] = {
+    "openai": "gpt-4o",
+    "openrouter": "anthropic/claude-sonnet-4",
+    "huggingface": "Qwen/Qwen2.5-Coder-32B-Instruct",
+}
+
+
 def _run_smoke(backend_name: str, env_var: str, base_url: str) -> RLMResult:
     """Run a single RLM completion against a live backend."""
     api_key = _require_env(env_var)
-    model = _BACKEND_DEFAULT_MODELS[backend_name]
+    model = _SMOKE_MODELS[backend_name]
     backend = OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
     rlm = RLM(backend=backend, model=model, max_iterations=5, max_tokens=2048, verbose=True)
     return rlm.completion(context=_SAMPLE_CONTEXT, query=_QUERY)

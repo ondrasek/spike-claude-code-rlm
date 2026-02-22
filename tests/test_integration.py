@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from rlm.backends import OpenAICompatibleBackend
-from rlm.cli import _BACKEND_DEFAULT_MODELS, _create_backend, main
+from rlm.cli import _create_backend, main
 from rlm.context import CompositeContext
 from rlm.rlm import RLM
 
@@ -30,14 +29,14 @@ class TestFullRLMLoop:
 
     def test_string_context(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = rlm.completion(SAMPLE_TEXT, "Summarize this document")
         assert result.success is True
         assert len(result.answer) > 0
 
     def test_file_context(self, tmp_text_file: Path) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = rlm.completion(tmp_text_file, "Summarize this document")
         assert result.success is True
         assert len(result.answer) > 0
@@ -45,7 +44,7 @@ class TestFullRLMLoop:
     def test_composite_context(self, tmp_multifile_dir: Path) -> None:
         ctx = CompositeContext.from_directory(tmp_multifile_dir)
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         result = rlm.completion(ctx, "Summarize these documents")
         assert result.success is True
         assert len(result.answer) > 0
@@ -53,7 +52,7 @@ class TestFullRLMLoop:
 
     def test_verbose_mode_produces_output(self, capsys: pytest.CaptureFixture[str]) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10, verbose=True)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, verbose=True)
         rlm.completion(SAMPLE_TEXT, "Summarize")
         captured = capsys.readouterr()
         assert "[RLM]" in captured.out
@@ -70,7 +69,15 @@ class TestCLIIntegration:
     def test_nonexistent_context_file_exit_one(self) -> None:
         with patch(
             "sys.argv",
-            ["rlm", "--backend", "anthropic", "--context-file", "/no/such/file.txt"],
+            [
+                "rlm",
+                "--backend",
+                "anthropic",
+                "--model",
+                "test-model",
+                "--context-file",
+                "/no/such/file.txt",
+            ],
         ):
             exit_code = main()
         assert exit_code == 1
@@ -92,7 +99,7 @@ class TestCLIBackendPresets:
 
     def test_openai_missing_key_exits_one(self) -> None:
         with (
-            patch("sys.argv", ["rlm", "--backend", "openai"]),
+            patch("sys.argv", ["rlm", "--backend", "openai", "--model", "gpt-4o"]),
             patch.dict("os.environ", {}, clear=False),
         ):
             # Ensure the key is absent even if set in the real env.
@@ -102,7 +109,10 @@ class TestCLIBackendPresets:
 
     def test_openrouter_missing_key_exits_one(self) -> None:
         with (
-            patch("sys.argv", ["rlm", "--backend", "openrouter"]),
+            patch(
+                "sys.argv",
+                ["rlm", "--backend", "openrouter", "--model", "anthropic/claude-sonnet-4"],
+            ),
             patch.dict("os.environ", {}, clear=False),
         ):
             os.environ.pop("OPENROUTER_API_KEY", None)
@@ -111,7 +121,10 @@ class TestCLIBackendPresets:
 
     def test_huggingface_missing_key_exits_one(self) -> None:
         with (
-            patch("sys.argv", ["rlm", "--backend", "huggingface"]),
+            patch(
+                "sys.argv",
+                ["rlm", "--backend", "huggingface", "--model", "Qwen/Qwen2.5-Coder-32B"],
+            ),
             patch.dict("os.environ", {}, clear=False),
         ):
             os.environ.pop("HF_TOKEN", None)
@@ -129,7 +142,7 @@ class TestStatsVerification:
 
     def test_cost_summary_nonzero_after_completion(self) -> None:
         backend = make_final_in_two_iterations_callback()
-        rlm = RLM(backend=backend, max_iterations=10)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
         rlm.completion(SAMPLE_TEXT, "query")
         summary = rlm.cost_summary()
         assert summary["iterations"] > 0
@@ -145,7 +158,7 @@ def _make_args(**overrides: object) -> argparse.Namespace:
     """Build an ``argparse.Namespace`` that mimics CLI-parsed args."""
     defaults: dict[str, object] = {
         "backend": "anthropic",
-        "model": None,
+        "model": "test-model",
         "base_url": None,
     }
     defaults.update(overrides)
@@ -188,12 +201,9 @@ class TestBackendFactory:
         assert isinstance(backend, OpenAICompatibleBackend)
         assert backend.base_url == expected_url
 
-    @pytest.mark.parametrize("backend_name", list(_BACKEND_DEFAULT_MODELS))
-    def test_model_defaults_applied(self, backend_name: str) -> None:
-        """``_create_backend`` fills in the per-backend default model."""
-        args = _make_args(backend=backend_name, model=None)
-        # We only care that _resolve_model runs; skip backends that need
-        # API keys or external services by catching expected errors.
-        with contextlib.suppress(ValueError, FileNotFoundError):
-            _create_backend(args)
-        assert args.model == _BACKEND_DEFAULT_MODELS[backend_name]
+    def test_model_required(self) -> None:
+        """CLI exits with error when --model is not provided."""
+        with patch("sys.argv", ["rlm", "--backend", "anthropic"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2

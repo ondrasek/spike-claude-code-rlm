@@ -5,7 +5,7 @@
 RLM (Recursive Language Model) is a Python 3.11+ implementation of the paradigm described in MIT CSAIL research paper [arXiv:2512.24601](https://arxiv.org/pdf/2512.24601). Unlike traditional RAG, RLM treats document context as an external variable in a Python REPL, allowing LLMs to programmatically inspect, search, chunk, and recursively process documents that far exceed typical context windows. The REPL is designed to run inside a rootless container for isolation.
 
 **Status:** Alpha (v0.1.0)
-**License:** BSD 2-Clause
+**License:** Apache 2.0
 
 ## Quick Start
 
@@ -13,16 +13,16 @@ The tool is runnable via `uvx` (no install required):
 
 ```bash
 # Run with Anthropic
-ANTHROPIC_API_KEY=... uvx rlm --context-file document.txt --query "Summarize this"
+ANTHROPIC_API_KEY=... uvx rlm --model claude-sonnet-4-20250514 --context-file document.txt --query "Summarize this"
 
 # Run with OpenAI
-OPENAI_API_KEY=... uvx --with openai rlm --backend openai --context-file doc.txt --query "Main points?"
+OPENAI_API_KEY=... uvx --with openai rlm --backend openai --model gpt-4o --context-file doc.txt --query "Main points?"
 
 # Run with OpenRouter
-OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --context-file doc.txt --query "Main points?"
+OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --model anthropic/claude-sonnet-4 --context-file doc.txt --query "Main points?"
 
 # Run with Hugging Face
-HF_TOKEN=... uvx --with openai rlm --backend huggingface --context-file doc.txt --query "Main points?"
+HF_TOKEN=... uvx --with openai rlm --backend huggingface --model Qwen/Qwen2.5-Coder-32B-Instruct --context-file doc.txt --query "Main points?"
 
 # Run with Ollama (requires openai extra)
 uvx --with openai rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Main points?"
@@ -78,9 +78,9 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
 - **`LLMBackend`** (`rlm/backends.py`): Abstract base class with three implementations:
   - `AnthropicBackend` — Direct Anthropic API (requires `anthropic` package, `ANTHROPIC_API_KEY` env var)
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
-- **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
+- **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query(snippet, task)`, `FINAL()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
 - **`prompts.py`** (`rlm/prompts.py`): Two system prompts (`FULL_SYSTEM_PROMPT` at ~120 lines, `COMPACT_SYSTEM_PROMPT` at ~25 lines) that instruct the LLM on the inspect-search-chunk-synthesize strategy.
-- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL, API key, and default model for each provider.
+- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model` (required), `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, `--no-context-sample`, `--timeout`, `--max-token-budget`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL and API key for each provider.
 
 ## Tech Stack and Dependencies
 
@@ -150,7 +150,7 @@ OLLAMA_HOST=localhost:11434 uv run pytest -m ollama -v
 
 ## Important Implementation Details
 
-- The default model is `claude-sonnet-4-20250514` (set in both `RLM.__init__` and `cli.py`)
+- `--model` is required — there are no default models; the user must always specify one
 - `AnthropicBackend` separates system messages from chat messages per Anthropic API requirements
 - The REPL captures `print()` output (max 10,000 chars) and feeds it back to the LLM as iteration context
 - `llm_query()` calls are limited by `max_depth` (default 3) to prevent infinite recursion
@@ -163,7 +163,6 @@ OLLAMA_HOST=localhost:11434 uv run pytest -m ollama -v
 - `CONTEXT` in the REPL is a **plain Python `str`** — LLM-generated code should use standard Python (`re.findall(pattern, CONTEXT)`, `CONTEXT.splitlines()`, slicing) not custom methods. The context classes in `context.py` are internal file-loading infrastructure only.
 - The `_extract_code_blocks` regex expects markdown code fences (`` ```python `` or `` ``` ``); changes to code block parsing affect the entire iteration loop
 - `AnthropicBackend` creates a new `AsyncAnthropic` client on every `acompletion` call — this is by design for simplicity but could be optimized
-- The `FINAL_VAR` implementation in `repl.py` is incomplete — `_final_var` is a no-op; the fallback logic checks for `final_` prefixed variables in the namespace instead
 - When using `uvx` with the Ollama backend, pass `--with openai` since `openai` is an optional dependency
 
 ## Environment Variables
