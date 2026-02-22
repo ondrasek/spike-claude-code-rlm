@@ -55,11 +55,12 @@ files are loaded. Check with `"FILES" in dir()`.
 
 You MUST follow these steps in order. Do NOT skip the Inspect step.
 
-1. **Inspect** (MANDATORY first step): Study the document sample provided below the query.
-   - The sample shows excerpts from several positions in the document.
-   - Read the sample carefully to understand the format (plain text, Markdown, JSON, CSV, etc.).
-   - Design your patterns based on the ACTUAL format you see, not assumptions.
-   - DO NOT use `CONTEXT[:500]` or `len(CONTEXT)` — that information is already provided.
+1. **Inspect** (MANDATORY first step): Understand the document before searching.
+   - If a document sample is provided below the query, study it to understand the format
+     (plain text, Markdown, JSON, CSV, etc.) and design patterns based on what you see.
+   - If NO sample is provided, start by inspecting the document yourself:
+     `print(f'Length: {len(CONTEXT)}')` and `print(CONTEXT[:1000])` to understand its structure.
+   - Design your patterns based on the ACTUAL format, not assumptions.
 
 2. **Search** (broad first, then refine): Cast a wide net, inspect what you find, then narrow.
    - Use standard Python on CONTEXT: `re.findall(pattern, CONTEXT)`, `re.search(...)`, etc.
@@ -78,6 +79,14 @@ You MUST follow these steps in order. Do NOT skip the Inspect step.
    - Aggregate results from multiple chunks.
 
 4. **Synthesize**: Combine results and call `FINAL(answer)` with your complete response.
+
+## When to Use llm_query()
+
+- Use `llm_query()` for **semantic** tasks: summarization, information extraction, classification, \
+reasoning about meaning.
+- Use **Python directly** for **structural** tasks: regex search, counting, slicing, formatting.
+- Common pattern: use Python to find and extract relevant chunks, then pass them to \
+`llm_query()` for interpretation.
 
 ## Example Patterns
 
@@ -156,7 +165,8 @@ Answer the query by writing Python code to explore CONTEXT.
 `.search()`, `.lines()`, or `.chunk()` on CONTEXT.
 
 **Strategy (MANDATORY — follow in order):**
-1. Inspect: A document sample is provided below the query. Read it to understand the format.
+1. Inspect: If a document sample is provided below the query, read it to understand the format. \
+Otherwise, start with `print(CONTEXT[:1000])` and `print(len(CONTEXT))`.
 2. Search: Start BROAD (e.g. find all lines containing a keyword), inspect the matches to
    discover format variations, then refine. Never FINAL() with empty or incomplete results.
 3. Chunk: Process sections with `llm_query(CONTEXT[start:end], "your task")`
@@ -164,6 +174,51 @@ Answer the query by writing Python code to explore CONTEXT.
 
 Write Python code to explore CONTEXT and answer the query.
 """
+
+
+SUB_LLM_SYSTEM_PROMPT = """You are a text analysis assistant. You receive a text snippet and a task.
+
+Rules:
+- Focus exclusively on the provided snippet — do not speculate about content you cannot see.
+- Answer the task concisely and directly.
+- If the snippet does not contain enough information to complete the task, say so explicitly.
+- Return plain text only — do not write Python code or use markdown code blocks.
+- Do not include preambles like "Here is the summary:" — start with the answer directly.
+"""
+
+
+def get_sub_llm_system_prompt() -> str:
+    """Get the system prompt for sub-LM (recursive llm_query) calls.
+
+    Returns
+    -------
+    str
+        System prompt for the sub-LM worker role.
+    """
+    return SUB_LLM_SYSTEM_PROMPT
+
+
+VERIFIER_SYSTEM_PROMPT = """You are a verification assistant. \
+You receive a proposed answer and supporting evidence.
+
+Your job:
+1. Check if the answer is supported by the evidence provided.
+2. Check for obvious errors, contradictions, or unsupported claims.
+3. Return one of:
+   - "VERIFIED" if the answer is well-supported
+   - "ISSUES: <brief description>" if you find problems
+"""
+
+
+def get_verifier_system_prompt() -> str:
+    """Get the system prompt for the verification step.
+
+    Returns
+    -------
+    str
+        System prompt for the verifier role.
+    """
+    return VERIFIER_SYSTEM_PROMPT
 
 
 def get_user_prompt(query: str, context_sample: str = "") -> str:

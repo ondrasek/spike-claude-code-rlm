@@ -339,6 +339,11 @@ def main() -> int:
         help="Maximum total tokens (input + output)",
     )
     parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run a verification sub-call on the final answer (experimental)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -382,6 +387,7 @@ def main() -> int:
         include_context_sample=not args.no_context_sample,
         timeout=args.timeout,
         max_token_budget=args.max_token_budget,
+        verify=args.verify,
     )
 
     return _run_completion(rlm, context, args.query)

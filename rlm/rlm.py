@@ -14,7 +14,12 @@ import click
 
 from .backends import LLMBackend
 from .context import CompositeContext
-from .prompts import get_system_prompt, get_user_prompt
+from .prompts import (
+    get_sub_llm_system_prompt,
+    get_system_prompt,
+    get_user_prompt,
+    get_verifier_system_prompt,
+)
 from .repl import REPLEnv
 
 _LOG_PREFIX = click.style("[RLM]", fg="yellow", bold=True)
@@ -62,6 +67,7 @@ class RLM:
         include_context_sample: bool = True,
         timeout: float | None = None,
         max_token_budget: int | None = None,
+        verify: bool = False,
     ) -> None:
         """Initialize RLM orchestrator.
 
@@ -89,6 +95,8 @@ class RLM:
             Wall-clock timeout in seconds. None means no timeout.
         max_token_budget : int | None
             Maximum total tokens (input + output). None means no limit.
+        verify : bool
+            Run a verification sub-call on the final answer.
         """
         self.backend = backend
         self.model = model
@@ -101,6 +109,7 @@ class RLM:
         self.include_context_sample = include_context_sample
         self.timeout = timeout
         self.max_token_budget = max_token_budget
+        self.verify = verify
 
     def _log(self, message: str) -> None:
         """Log a message if verbose is enabled.
@@ -181,6 +190,7 @@ class RLM:
             self._log(f"Recursive call (depth={current_depth + 1}): {prompt[:100]}...")
 
             messages = [
+                {"role": "system", "content": get_sub_llm_system_prompt()},
                 {"role": "user", "content": prompt},
             ]
 
@@ -359,6 +369,53 @@ class RLM:
             )
         return None
 
+    def _verify_answer(
+        self,
+        answer: str,
+        context_str: str,
+        stats: RLMStats,
+    ) -> str:
+        """Run a verification sub-call on the final answer.
+
+        Parameters
+        ----------
+        answer : str
+            The proposed final answer.
+        context_str : str
+            The full context string (truncated to first 5000 chars as evidence).
+        stats : RLMStats
+            Statistics object to update.
+
+        Returns
+        -------
+        str
+            The original answer (possibly with issues noted).
+        """
+        self._log("Running verification on final answer")
+        evidence = context_str[:5000]
+        prompt = (
+            f"Proposed answer:\n{answer}\n\n"
+            f"Supporting evidence (first 5000 chars of source):\n{evidence}"
+        )
+        messages = [
+            {"role": "system", "content": get_verifier_system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
+
+        stats.llm_calls += 1
+        result = self.backend.completion(messages, self.recursive_model, max_tokens=self.max_tokens)
+        stats.total_input_tokens += result.usage.input_tokens
+        stats.total_output_tokens += result.usage.output_tokens
+
+        verdict = result.text.strip()
+        self._log(f"Verification result: {verdict[:200]}")
+
+        if verdict.upper().startswith("ISSUES:"):
+            self._log("Verification found issues")
+            return f"{answer}\n\n[Verification note: {verdict}]"
+
+        return answer
+
     def _handle_no_code_blocks(
         self,
         response: str,
@@ -495,6 +552,8 @@ class RLM:
             all_output, final_answer = self._execute_code_blocks(code_blocks, repl)
 
             if final_answer:
+                if self.verify:
+                    final_answer = self._verify_answer(final_answer, repl.context_str, stats)
                 history.append(
                     {
                         "iteration": iteration + 1,

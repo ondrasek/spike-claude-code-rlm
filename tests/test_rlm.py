@@ -173,6 +173,26 @@ class TestCreateLlmQueryFn:
         assert stats.recursive_calls == 1
         assert stats.llm_calls == 1
 
+    def test_sub_llm_receives_system_message(self) -> None:
+        """Sub-LM calls should include a system message."""
+        captured_messages: list[list[dict[str, str]]] = []
+
+        def _capture(messages: list[dict[str, str]], model: str) -> str:
+            captured_messages.append(messages)
+            return "mock response"
+
+        backend = CallbackBackend(_capture)
+        rlm = RLM(backend=backend, model="test-model")
+        fn = rlm._create_llm_query_fn("context")
+        fn.bind_stats(RLMStats())  # type: ignore[attr-defined]
+        fn("some snippet", "summarize this")
+
+        assert len(captured_messages) == 1
+        msgs = captured_messages[0]
+        assert msgs[0]["role"] == "system"
+        assert "text analysis" in msgs[0]["content"].lower()
+        assert msgs[1]["role"] == "user"
+
 
 # =====================================================================
 # RLM._log
@@ -481,3 +501,72 @@ class TestTokenBudgetGuard:
         result = rlm.completion(SAMPLE_TEXT, "query")
         assert result.success is False
         assert "Token budget exceeded" in (result.error or "")
+
+
+# =====================================================================
+# RLM._verify_answer
+# =====================================================================
+
+
+class TestVerifyAnswer:
+    """Tests for the --verify flag and _verify_answer method."""
+
+    def test_verification_skipped_by_default(self) -> None:
+        """Without --verify, no extra LLM call is made for verification."""
+        call_count = {"n": 0}
+
+        def _cb(messages: list[dict[str, str]], model: str) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return '```python\nprint("exploring")\n```'
+            return '```python\nFINAL("the answer")\n```'
+
+        backend = CallbackBackend(_cb)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert call_count["n"] == 2  # only root LM calls, no verifier
+
+    def test_verification_calls_backend_when_enabled(self) -> None:
+        """With --verify, an extra LLM call is made after FINAL."""
+        call_count = {"n": 0}
+
+        def _cb(messages: list[dict[str, str]], model: str) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return '```python\nprint("exploring")\n```'
+            if call_count["n"] == 2:
+                return '```python\nFINAL("the answer")\n```'
+            return "VERIFIED"
+
+        backend = CallbackBackend(_cb)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5, verify=True)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert call_count["n"] == 3  # 2 root + 1 verifier
+
+    def test_verified_answer_passes_through(self) -> None:
+        """VERIFIED response returns the answer unchanged."""
+        responses = [
+            '```python\nFINAL("clean answer")\n```',
+            "VERIFIED",
+        ]
+        backend = make_deterministic_callback(responses)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5, verify=True)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert result.answer == "clean answer"
+
+    def test_issues_response_appends_note(self) -> None:
+        """ISSUES: response appends a verification note to the answer."""
+        responses = [
+            '```python\nFINAL("dubious claim")\n```',
+            "ISSUES: The claim is not supported by the evidence",
+        ]
+        backend = make_deterministic_callback(responses)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=5, verify=True)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "dubious claim" in result.answer
+        assert "[Verification note:" in result.answer
+        assert "not supported" in result.answer
