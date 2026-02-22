@@ -24,6 +24,20 @@ cd "$CLAUDE_PROJECT_DIR"
 
 # Check for uncommitted changes
 if [ -z "$(git status --porcelain)" ]; then
+    # No uncommitted changes — but check for unpushed commits
+    unpushed=$(git log @{u}..HEAD --oneline 2>/dev/null)
+    if [ -n "$unpushed" ]; then
+        echo "[auto-commit] No uncommitted changes, but found unpushed commits" >&2
+        debuglog "Pushing unpushed commits"
+        push_output=$(git push -u origin HEAD 2>&1) || {
+            echo "[auto-commit] Push failed: $push_output" >&2
+            debuglog "Push of unpushed commits failed: $push_output"
+            exit 0
+        }
+        echo "[auto-commit] Push successful" >&2
+        debuglog "=== HOOK FINISHED — pushed previously unpushed commits (exit 0) ==="
+        exit 0
+    fi
     echo "[auto-commit] No changes to commit" >&2
     debuglog "No changes to commit (exit 0)"
     exit 0
