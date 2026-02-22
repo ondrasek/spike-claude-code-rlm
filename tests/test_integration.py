@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from rlm.cli import main
+from rlm.backends import OpenAICompatibleBackend
+from rlm.cli import _BACKEND_DEFAULT_MODELS, _create_backend, main
 from rlm.context import CompositeContext
 from rlm.rlm import RLM
 
@@ -131,3 +134,66 @@ class TestStatsVerification:
         summary = rlm.cost_summary()
         assert summary["iterations"] > 0
         assert summary["llm_calls"] > 0
+
+
+# =====================================================================
+# Backend factory unit tests
+# =====================================================================
+
+
+def _make_args(**overrides: object) -> argparse.Namespace:
+    """Build an ``argparse.Namespace`` that mimics CLI-parsed args."""
+    defaults: dict[str, object] = {
+        "backend": "anthropic",
+        "model": None,
+        "base_url": None,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+class TestBackendFactory:
+    """Unit tests for ``_create_backend()`` — no live API calls."""
+
+    @pytest.mark.parametrize(
+        ("backend_name", "env_var", "expected_url"),
+        [
+            ("openai", "OPENAI_API_KEY", "https://api.openai.com/v1"),
+            ("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
+            ("huggingface", "HF_TOKEN", "https://api-inference.huggingface.co/v1"),
+        ],
+    )
+    def test_creates_openai_compatible_backend(
+        self, backend_name: str, env_var: str, expected_url: str
+    ) -> None:
+        args = _make_args(backend=backend_name)
+        with patch.dict(os.environ, {env_var: "test-key-123"}):
+            backend = _create_backend(args)
+        assert isinstance(backend, OpenAICompatibleBackend)
+        assert backend.base_url == expected_url
+        assert backend.client.api_key == "test-key-123"
+
+    @pytest.mark.parametrize(
+        ("backend_name", "env_var", "expected_url"),
+        [
+            ("openai", "OPENAI_API_KEY", "https://custom.example.com/v1"),
+            ("openrouter", "OPENROUTER_API_KEY", "https://custom.example.com/v1"),
+            ("huggingface", "HF_TOKEN", "https://custom.example.com/v1"),
+        ],
+    )
+    def test_base_url_override(self, backend_name: str, env_var: str, expected_url: str) -> None:
+        args = _make_args(backend=backend_name, base_url=expected_url)
+        with patch.dict(os.environ, {env_var: "key"}):
+            backend = _create_backend(args)
+        assert isinstance(backend, OpenAICompatibleBackend)
+        assert backend.base_url == expected_url
+
+    @pytest.mark.parametrize("backend_name", list(_BACKEND_DEFAULT_MODELS))
+    def test_model_defaults_applied(self, backend_name: str) -> None:
+        """``_create_backend`` fills in the per-backend default model."""
+        args = _make_args(backend=backend_name, model=None)
+        # We only care that _resolve_model runs; skip backends that need
+        # API keys or external services by catching expected errors.
+        with contextlib.suppress(ValueError, FileNotFoundError):
+            _create_backend(args)
+        assert args.model == _BACKEND_DEFAULT_MODELS[backend_name]
