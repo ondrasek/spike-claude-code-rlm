@@ -1,0 +1,34 @@
+name: Generate ALGORITHM.pdf
+
+on:
+  push:
+    paths: ['ALGORITHM.md']
+  workflow_dispatch:
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc and LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-latex-recommended texlive-fonts-recommended
+
+      - name: Convert ALGORITHM.md to PDF
+        run: pandoc ALGORITHM.md -o ALGORITHM.pdf
+
+      - name: Commit and push PDF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ALGORITHM.pdf
+          if git diff --cached --quiet; then
+            echo "No changes to ALGORITHM.pdf, skipping commit."
+          else
+            git commit -m "Update ALGORITHM.pdf from ALGORITHM.md"
+            git push
+          fi
