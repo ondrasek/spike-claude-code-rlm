@@ -22,19 +22,55 @@ export CLAUDE_HOOK_RUNNING=1
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# --- Shared push helper: push or fail with exit 2 ---
+# --- Shared push helper: push or fail with exit 2 and actionable instructions ---
 do_push() {
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
     push_output=$(git push -u origin HEAD 2>&1) && {
         echo "[auto-commit] Push successful" >&2
         debuglog "=== HOOK FINISHED — push successful (exit 0) ==="
         return 0
     }
+
+    debuglog "Push failed: $push_output"
+
+    # Diagnose the failure and give Claude Code clear instructions
     echo "" >&2
-    echo "[auto-commit] Push failed:" >&2
+    echo "=== AUTO-COMMIT HOOK: git push failed ===" >&2
+    echo "" >&2
+    echo "git push output:" >&2
     echo "$push_output" >&2
     echo "" >&2
-    echo "Please resolve the issue (e.g. git pull --rebase) and push." >&2
-    debuglog "Push failed: $push_output"
+
+    if echo "$push_output" | grep -q "fetch first\|non-fast-forward\|rejected"; then
+        echo "DIAGNOSIS: The remote branch has commits not present locally" >&2
+        echo "  (likely CI-generated files such as ALGORITHM.pdf)." >&2
+        echo "" >&2
+        echo "ACTION REQUIRED:" >&2
+        echo "  1. Run: git pull --rebase origin $branch" >&2
+        echo "  2. If there are merge conflicts, resolve them" >&2
+        echo "  3. Run: git push origin $branch" >&2
+    elif echo "$push_output" | grep -q "Permission denied\|authentication\|403\|401"; then
+        echo "DIAGNOSIS: Authentication or permission error." >&2
+        echo "" >&2
+        echo "ACTION REQUIRED:" >&2
+        echo "  This is not something you can fix. Inform the user that" >&2
+        echo "  git push failed due to authentication/permission issues." >&2
+    elif echo "$push_output" | grep -q "Could not resolve host\|unable to access"; then
+        echo "DIAGNOSIS: Network connectivity issue." >&2
+        echo "" >&2
+        echo "ACTION REQUIRED:" >&2
+        echo "  This is not something you can fix. Inform the user that" >&2
+        echo "  git push failed due to a network error." >&2
+    else
+        echo "DIAGNOSIS: Unknown push failure." >&2
+        echo "" >&2
+        echo "ACTION REQUIRED:" >&2
+        echo "  Inspect the git push output above and attempt to resolve." >&2
+        echo "  If unresolvable, inform the user." >&2
+    fi
+
+    echo "" >&2
     exit 2
 }
 
