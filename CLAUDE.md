@@ -238,6 +238,10 @@ Claude also invokes the skill automatically when asked to analyze a large docume
 
 **Prerequisites:** `uv` on PATH and Python 3.11+. No other pre-installation needed.
 
+## Rules
+
+- **Keep `ALGORITHM.md` up to date.** Whenever you change core implementation logic (the iteration loop, REPL environment, code extraction, prompt strategy, or backend behavior), update `ALGORITHM.md` to reflect the current state. This file documents how the implementation maps to the arXiv paper and is auto-converted to PDF by CI.
+
 ## Areas for Contribution
 
 Per CONTRIBUTING.md: additional LLM backends, performance optimizations, error handling improvements, pytest test suite, CI/CD pipeline, documentation, and example use cases.
