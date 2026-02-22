@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,22 +64,10 @@ class TestFullRLMLoop:
 class TestCLIIntegration:
     """Tests for the CLI main() entry point."""
 
-    def test_callback_backend_exit_zero(self) -> None:
-        with patch("sys.argv", ["rlm", "--backend", "callback"]):
-            exit_code = main()
-        assert exit_code == 0
-
-    def test_callback_verbose_prints_output(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with patch("sys.argv", ["rlm", "--backend", "callback", "--verbose"]):
-            exit_code = main()
-        assert exit_code == 0
-        captured = capsys.readouterr()
-        assert "FINAL ANSWER" in captured.out
-
     def test_nonexistent_context_file_exit_one(self) -> None:
         with patch(
             "sys.argv",
-            ["rlm", "--backend", "callback", "--context-file", "/no/such/file.txt"],
+            ["rlm", "--backend", "anthropic", "--context-file", "/no/such/file.txt"],
         ):
             exit_code = main()
         assert exit_code == 1
@@ -88,6 +77,43 @@ class TestCLIIntegration:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
+
+
+# =====================================================================
+# CLI backend presets
+# =====================================================================
+
+
+class TestCLIBackendPresets:
+    """Verify that new backend presets validate API key env vars."""
+
+    def test_openai_missing_key_exits_one(self) -> None:
+        with (
+            patch("sys.argv", ["rlm", "--backend", "openai"]),
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            # Ensure the key is absent even if set in the real env.
+            os.environ.pop("OPENAI_API_KEY", None)
+            exit_code = main()
+        assert exit_code == 1
+
+    def test_openrouter_missing_key_exits_one(self) -> None:
+        with (
+            patch("sys.argv", ["rlm", "--backend", "openrouter"]),
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            exit_code = main()
+        assert exit_code == 1
+
+    def test_huggingface_missing_key_exits_one(self) -> None:
+        with (
+            patch("sys.argv", ["rlm", "--backend", "huggingface"]),
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            os.environ.pop("HF_TOKEN", None)
+            exit_code = main()
+        assert exit_code == 1
 
 
 # =====================================================================

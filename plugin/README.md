@@ -45,8 +45,10 @@ Claude will also invoke the skill automatically when you ask it to analyze a lar
 | Backend | Flag | Requirements |
 |---|---|---|
 | Anthropic (default) | `--backend anthropic` | `ANTHROPIC_API_KEY` env var |
+| OpenAI | `--backend openai` | `OPENAI_API_KEY` env var |
+| OpenRouter | `--backend openrouter` | `OPENROUTER_API_KEY` env var |
+| Hugging Face | `--backend huggingface` | `HF_TOKEN` env var |
 | Ollama | `--backend ollama` | Ollama running locally |
-| Mock/test | `--backend callback` | None |
 
 ### Prerequisites
 

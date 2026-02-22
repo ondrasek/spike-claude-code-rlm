@@ -12,17 +12,23 @@ RLM (Recursive Language Model) is a Python 3.11+ implementation of the paradigm 
 The tool is runnable via `uvx` (no install required):
 
 ```bash
-# Run with mock backend (no API key needed, good for testing)
-uvx rlm --backend callback --verbose
-
 # Run with Anthropic
 ANTHROPIC_API_KEY=... uvx rlm --context-file document.txt --query "Summarize this"
+
+# Run with OpenAI
+OPENAI_API_KEY=... uvx --with openai rlm --backend openai --context-file doc.txt --query "Main points?"
+
+# Run with OpenRouter
+OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --context-file doc.txt --query "Main points?"
+
+# Run with Hugging Face
+HF_TOKEN=... uvx --with openai rlm --backend huggingface --context-file doc.txt --query "Main points?"
 
 # Run with Ollama (requires openai extra)
 uvx --with openai rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Main points?"
 
 # Also works as a module
-python -m rlm --backend callback --verbose
+python -m rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Summarize"
 ```
 
 ## Repository Structure
@@ -34,7 +40,7 @@ spike-claude-code-rlm/
 │   ├── __main__.py             # python -m rlm support
 │   ├── cli.py                  # CLI entry point (uvx rlm / python -m rlm)
 │   ├── rlm.py                  # RLM orchestrator (iteration loop, code extraction)
-│   ├── backends.py             # LLM backend implementations (Anthropic, OpenAI-compat, Callback)
+│   ├── backends.py             # LLM backend implementations (Anthropic, OpenAI-compat)
 │   ├── repl.py                 # REPL environment (container-isolated)
 │   ├── prompts.py              # System prompts (full and compact) for LLM guidance
 │   └── sample_data/
@@ -72,10 +78,9 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
 - **`LLMBackend`** (`rlm/backends.py`): Abstract base class with three implementations:
   - `AnthropicBackend` — Direct Anthropic API (requires `anthropic` package, `ANTHROPIC_API_KEY` env var)
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
-  - `CallbackBackend` — Wraps a `Callable[[list[dict], str], str]` for custom integrations
 - **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query()`, `FINAL()`, `FINAL_VAR()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
 - **`prompts.py`** (`rlm/prompts.py`): Two system prompts (`FULL_SYSTEM_PROMPT` at ~120 lines, `COMPACT_SYSTEM_PROMPT` at ~25 lines) that instruct the LLM on the inspect-search-chunk-synthesize strategy.
-- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend`, `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags.
+- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model`, `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL, API key, and default model for each provider.
 
 ## Tech Stack and Dependencies
 
@@ -104,9 +109,6 @@ ruff check .
 # Type checking
 mypy rlm/
 
-# Run with mock backend (no API key needed)
-uvx rlm --backend callback --verbose
-
 # Run with Anthropic
 ANTHROPIC_API_KEY=... uvx rlm --verbose
 
@@ -131,13 +133,13 @@ uv build
 
 ## Testing
 
-There is no formal test suite yet. Testing is done manually:
-
 ```bash
-uvx rlm --backend callback --verbose
-```
+# Run the full test suite (excluding slow/Ollama tests)
+uv run pytest -x --tb=short -m "not slow"
 
-The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deterministic mock that exercises the full iteration loop without requiring API access. Future testing should use `pytest`.
+# Run Ollama smoke tests (requires running Ollama server)
+OLLAMA_HOST=localhost:11434 uv run pytest -m ollama -v
+```
 
 ## Key Design Patterns
 
@@ -169,6 +171,9 @@ The `CallbackBackend` with `_mock_llm_callback` in `rlm/cli.py` provides a deter
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | For Anthropic backend | Anthropic API authentication key |
+| `OPENAI_API_KEY` | For OpenAI backend | OpenAI API authentication key |
+| `OPENROUTER_API_KEY` | For OpenRouter backend | OpenRouter API authentication key |
+| `HF_TOKEN` | For Hugging Face backend | Hugging Face API token |
 
 ## Claude Code Plugin
 

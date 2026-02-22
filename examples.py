@@ -71,39 +71,7 @@ def example_ollama() -> None:
     print(result.answer)
 
 
-# Example 4: Custom callback integration
-def example_custom_callback() -> None:
-    """Example integrating with a custom LLM system."""
-    from rlm import RLM
-    from rlm.backends import CallbackBackend
-
-    def my_llm_function(messages: list[dict[str, str]], model: str) -> str:
-        """Custom function that calls your LLM system.
-
-        Parameters
-        ----------
-        messages : list[dict[str, str]]
-            Conversation history.
-        model : str
-            Model identifier.
-
-        Returns
-        -------
-        str
-            LLM response.
-        """
-        # Your custom integration here
-        # Could call Claude Max, a CLI tool, or any other system
-        return "Custom LLM response placeholder"
-
-    backend = CallbackBackend(my_llm_function)
-    rlm = RLM(backend, model="my-custom-model")
-
-    result = rlm.completion(context="...", query="...")
-    print(result.answer)
-
-
-# Example 5: Processing structured data
+# Example 4: Processing structured data
 def example_structured_data() -> None:
     """Example processing structured data like logs or JSON."""
     from rlm import RLM
@@ -124,7 +92,7 @@ def example_structured_data() -> None:
     print(result.answer)
 
 
-# Example 6: Async usage
+# Example 5: Async usage
 async def example_async() -> None:
     """Example using async completion."""
     from rlm import RLM
@@ -140,7 +108,7 @@ async def example_async() -> None:
     print(result.answer)
 
 
-# Example 7: Error handling
+# Example 6: Error handling
 def example_error_handling() -> None:
     """Example demonstrating error handling."""
     from rlm import RLM
@@ -164,7 +132,7 @@ def example_error_handling() -> None:
             print(f"Iteration {item['iteration']}: {item.get('output', 'N/A')}")
 
 
-# Example 8: Analyzing code repositories
+# Example 7: Analyzing code repositories
 def example_code_analysis() -> None:
     """Example analyzing a code repository."""
     from pathlib import Path
@@ -189,7 +157,7 @@ def example_code_analysis() -> None:
     print(result.answer)
 
 
-# Example 9: Comparing documents
+# Example 8: Comparing documents
 def example_document_comparison() -> None:
     """Example comparing two large documents."""
     from rlm import RLM
@@ -212,7 +180,7 @@ def example_document_comparison() -> None:
     print(result.answer)
 
 
-# Example 10: Research paper analysis
+# Example 9: Research paper analysis
 def example_research_paper() -> None:
     """Example analyzing a research paper."""
     from rlm import RLM

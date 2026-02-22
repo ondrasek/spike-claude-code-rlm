@@ -3,7 +3,8 @@
 Supports multiple LLM providers:
 - AnthropicBackend: Direct Anthropic API
 - OpenAICompatibleBackend: OpenAI-compatible APIs (Ollama, vLLM, etc.)
-- CallbackBackend: Custom callback function for integration with other systems
+- ClaudeCLIBackend: Claude Code CLI (claude -p)
+- CallbackBackend: Internal — used by the test suite only
 """
 
 import json

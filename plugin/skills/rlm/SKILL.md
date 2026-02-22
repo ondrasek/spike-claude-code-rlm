@@ -35,14 +35,24 @@ If no arguments are provided, ask the user which file to analyze and what to ask
   uv run --directory "${CLAUDE_PLUGIN_ROOT}" rlm --context-file <path> --query "<question>" --verbose
   ```
 
+- **OpenAI**: Requires `OPENAI_API_KEY` env var to be set.
+  ```bash
+  uv run --directory "${CLAUDE_PLUGIN_ROOT}" --with openai rlm --backend openai --context-file <path> --query "<question>" --verbose
+  ```
+
+- **OpenRouter**: Requires `OPENROUTER_API_KEY` env var to be set.
+  ```bash
+  uv run --directory "${CLAUDE_PLUGIN_ROOT}" --with openai rlm --backend openrouter --context-file <path> --query "<question>" --verbose
+  ```
+
+- **Hugging Face**: Requires `HF_TOKEN` env var to be set.
+  ```bash
+  uv run --directory "${CLAUDE_PLUGIN_ROOT}" --with openai rlm --backend huggingface --context-file <path> --query "<question>" --verbose
+  ```
+
 - **Ollama** (local models): Requires Ollama running locally.
   ```bash
   uv run --directory "${CLAUDE_PLUGIN_ROOT}" --with openai rlm --backend ollama --model llama3.2 --context-file <path> --query "<question>" --verbose
-  ```
-
-- **Mock/test**: No API key needed — useful for verifying the tool works.
-  ```bash
-  uv run --directory "${CLAUDE_PLUGIN_ROOT}" rlm --backend callback --verbose
   ```
 
 ### Additional flags

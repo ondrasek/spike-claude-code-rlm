@@ -38,9 +38,9 @@ mypy rlm/
 
 ## Testing
 
-Run the demo with mock backend to verify functionality:
+Run the test suite:
 ```bash
-python demo.py --backend callback --verbose
+uv run pytest -x --tb=short -m "not slow"
 ```
 
 ## Pull Request Process

@@ -84,6 +84,24 @@ print(result.answer)
 print(rlm.cost_summary())
 ```
 
+### Using OpenAI
+
+```bash
+OPENAI_API_KEY=... uvx --with openai rlm --backend openai --context-file doc.txt --query "Summarize"
+```
+
+### Using OpenRouter
+
+```bash
+OPENROUTER_API_KEY=... uvx --with openai rlm --backend openrouter --context-file doc.txt --query "Summarize"
+```
+
+### Using Hugging Face
+
+```bash
+HF_TOKEN=... uvx --with openai rlm --backend huggingface --context-file doc.txt --query "Summarize"
+```
+
 ### Using Local Models (Ollama)
 
 ```python
@@ -99,21 +117,6 @@ rlm = RLM(backend, model="llama3.2", verbose=True)
 result = rlm.completion(context=doc, query="Summarize this document")
 ```
 
-### Using Custom Callback
-
-```python
-from rlm import RLM
-from rlm.backends import CallbackBackend
-
-def my_llm_callback(messages: list[dict], model: str) -> str:
-    """Custom LLM call - integrate with Claude Max, CLI, or other systems."""
-    # Your implementation here
-    pass
-
-backend = CallbackBackend(my_llm_callback)
-rlm = RLM(backend, model="custom", verbose=True)
-```
-
 ## Demo
 
 ```bash
@@ -122,9 +125,6 @@ python demo.py --verbose
 
 # With Ollama
 python demo.py --backend ollama --model llama3.2 --verbose
-
-# With mock callback (for testing)
-python demo.py --backend callback --verbose
 
 # Custom context file
 python demo.py --context-file /path/to/document.txt --query "Your question here"
@@ -165,11 +165,21 @@ class RLMResult:
 
 ### Backends
 
-| Backend | Use Case |
-|---------|----------|
-| `AnthropicBackend` | Direct Anthropic API |
-| `OpenAICompatibleBackend` | Ollama, vLLM, LM Studio, etc. |
-| `CallbackBackend` | Custom integration |
+| Backend | Use Case | Default Model |
+|---------|----------|---------------|
+| `AnthropicBackend` | Direct Anthropic API | `claude-sonnet-4-20250514` |
+| `OpenAICompatibleBackend` | OpenAI, OpenRouter, Hugging Face, Ollama, vLLM, etc. | (varies by preset) |
+
+#### CLI Backend Presets
+
+| `--backend` | Provider | API Key Env Var | Default Model |
+|---|---|---|---|
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| `openai` | OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
+| `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| `huggingface` | Hugging Face | `HF_TOKEN` | `Qwen/Qwen2.5-Coder-32B-Instruct` |
+| `ollama` | Ollama (local) | *(none)* | `qwen3-coder:32b` |
+| `claude` | Claude CLI | *(none)* | `claude-sonnet-4-20250514` |
 
 ## REPL Environment
 
@@ -192,7 +202,7 @@ spike-claude-code-rlm/
 ├── rlm/
 │   ├── __init__.py      # Package exports
 │   ├── repl.py          # REPL environment (REPLEnv, REPLResult)
-│   ├── backends.py      # LLM backends (Anthropic, OpenAI, Callback)
+│   ├── backends.py      # LLM backends (Anthropic, OpenAI-compatible)
 │   ├── prompts.py       # System prompts for root LLM
 │   └── rlm.py           # Core orchestrator (RLM, RLMResult, RLMStats)
 ├── demo.py              # CLI demo with multiple backends
@@ -214,7 +224,7 @@ spike-claude-code-rlm/
 ✅ **Multiple LLM Backends**
 - Anthropic (Claude)
 - OpenAI-compatible (Ollama, vLLM, etc.)
-- Custom callback for integration
+- Claude CLI backend
 
 ✅ **Container-Isolated Execution**
 - Designed for rootless container runtimes

@@ -27,7 +27,6 @@ Example:
 
 from .backends import (
     AnthropicBackend,
-    CallbackBackend,
     ClaudeCLIBackend,
     CompletionResult,
     LLMBackend,
@@ -47,7 +46,6 @@ __all__ = [
     "LLMBackend",
     "AnthropicBackend",
     "OpenAICompatibleBackend",
-    "CallbackBackend",
     "ClaudeCLIBackend",
     "CompletionResult",
     "TokenUsage",

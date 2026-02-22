@@ -2,7 +2,7 @@ RLM Examples Plan
 
 ## Goal
 
-Create 5 comprehensive, runnable examples demonstrating RLM on real-world scenarios. Each example uses public domain or open source data, includes both mock (callback) and real backend invocations, and is fully self-contained.
+Create 5 comprehensive, runnable examples demonstrating RLM on real-world scenarios. Each example uses public domain or open source data and is fully self-contained.
 
 **Mix:** 3 standalone shell scripts + 2 Claude Code skill workflows.
 
@@ -43,13 +43,13 @@ examples/
 **What it demonstrates:**
 - Basic CLI usage with `--context-file` and `--query`
 - Text search and section extraction on a real document
-- Running with both mock (`--backend callback`) and Anthropic backends
+- Running with Anthropic and Ollama backends
 - Verbose mode for observing the RLM iteration loop
 
 **Data source:** US Constitution full text (public domain, ~45KB). Bundled directly in the example directory to avoid network dependency.
 
 **Script outline (`run.sh`):**
-1. Determine backend from `$1` arg (default: `callback`)
+1. Determine backend from `$1` arg (default: `anthropic`)
 2. Run three different queries against the constitution:
    - "List all 27 amendments with their ratification years and a one-sentence summary of each"
    - "Which amendments deal with voting rights? How has the right to vote expanded over time?"
@@ -85,7 +85,7 @@ examples/
 **What it demonstrates:**
 - `--context-dir` flag to load an entire directory of source files
 - `--context-glob` to filter file types (e.g., `**/*.py`)
-- Multi-file context with `CONTEXT.files` and `CONTEXT.file()` methods
+- Multi-file context with `FILES` dict in the REPL namespace
 - The compact prompt mode (`--compact`)
 
 **Data source:** RLM's own `rlm/` source directory (dogfooding — analyze yourself).
@@ -142,7 +142,7 @@ Provides step-by-step instructions for a Claude Code user:
 ## Implementation Notes
 
 - **All shell scripts** will be `chmod +x` and use `#!/usr/bin/env bash` with `set -euo pipefail`
-- **Backend flexibility:** Each `run.sh` accepts an optional `$1` argument to override the backend (default: `callback` for no-API-key testing, can pass `anthropic` or `ollama`)
+- **Backend flexibility:** Each `run.sh` accepts an optional `$1` argument to override the backend (default: `anthropic`, can pass `ollama`)
 - **Self-contained data:** Examples either bundle their data or include generation scripts — no external downloads required (except example 4 which optionally fetches from Project Gutenberg)
 - **Query design:** Queries are crafted to exercise different RLM capabilities (search, chunk, recursive query, aggregation, multi-file)
 - **README files:** Each example has a README explaining the scenario, what RLM features it showcases, how to run it, and what to look for in the output

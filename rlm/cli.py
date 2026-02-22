@@ -2,13 +2,15 @@
 
 Provides a command-line interface for running RLM with different backends:
 - Anthropic API (Claude)
+- OpenAI (GPT-4o, etc.)
+- OpenRouter (multi-provider gateway)
+- Hugging Face Inference API
 - OpenAI-compatible (Ollama, vLLM, etc.)
-- Custom callback (mock, for testing)
 
 Usage:
     uvx rlm --context-file document.txt --query "What are the main themes?"
+    uvx rlm --backend openai --context-file doc.txt --query "Summarize"
     uvx rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Summarize"
-    uvx rlm --backend callback --verbose  # Mock backend for testing
 """
 
 import argparse
@@ -20,49 +22,12 @@ import click
 
 from .backends import (
     AnthropicBackend,
-    CallbackBackend,
     ClaudeCLIBackend,
     LLMBackend,
     OpenAICompatibleBackend,
 )
 from .context import CompositeContext
 from .rlm import RLM
-
-
-def _mock_llm_callback(messages: list[dict[str, str]], model: str) -> str:
-    """Mock LLM callback for testing without API access.
-
-    Parameters
-    ----------
-    messages : list[dict[str, str]]
-        List of messages.
-    model : str
-        Model identifier.
-
-    Returns
-    -------
-    str
-        Mock response.
-    """
-    last_msg = messages[-1]["content"] if messages else ""
-
-    if "Output:" in last_msg:
-        return """Based on the exploration, I'll provide the final answer:
-
-```python
-mock_answer = "This is a mock demo. In a real scenario, I would analyze "
-mock_answer += "the CONTEXT variable and provide insights based on your query."
-FINAL(mock_answer)
-```
-"""
-    return """I'll explore the CONTEXT to answer your query.
-
-```python
-print(f"Context size: {len(CONTEXT):,} characters")
-sample = CONTEXT[:500]
-print(f"Sample: {sample[:200]}...")
-```
-"""
 
 
 def _get_default_context() -> str:
@@ -150,6 +115,29 @@ def _resolve_ollama_url(base_url_override: str | None) -> str:
     return f"{ollama_host.rstrip('/')}/v1"
 
 
+# Per-backend default models (used when --model is not specified).
+_BACKEND_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o",
+    "openrouter": "anthropic/claude-sonnet-4",
+    "huggingface": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "ollama": "qwen3-coder:32b",
+    "claude": "claude-sonnet-4-20250514",
+}
+
+
+def _resolve_model(args: argparse.Namespace) -> None:
+    """Fill in the default model when the user didn't pass ``--model``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments (mutated in place).
+    """
+    if args.model is None:
+        args.model = _BACKEND_DEFAULT_MODELS.get(args.backend, "claude-sonnet-4-20250514")
+
+
 def _create_backend(args: argparse.Namespace) -> LLMBackend:
     """Create LLM backend based on CLI arguments.
 
@@ -166,13 +154,42 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
     Raises
     ------
     ValueError
-        If ANTHROPIC_API_KEY is missing for anthropic backend.
+        If a required API key environment variable is missing.
     """
+    _resolve_model(args)
+
     if args.backend == "anthropic":
         if not os.getenv("ANTHROPIC_API_KEY"):
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
         click.echo(f"Using Anthropic backend with model: {args.model}")
         return AnthropicBackend()
+
+    if args.backend == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+        base_url = args.base_url or "https://api.openai.com/v1"
+        click.echo(f"Using OpenAI backend with model: {args.model}")
+        click.echo(f"  Base URL: {base_url}")
+        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
+
+    if args.backend == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set")
+        base_url = args.base_url or "https://openrouter.ai/api/v1"
+        click.echo(f"Using OpenRouter backend with model: {args.model}")
+        click.echo(f"  Base URL: {base_url}")
+        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
+
+    if args.backend == "huggingface":
+        api_key = os.getenv("HF_TOKEN")
+        if not api_key:
+            raise ValueError("HF_TOKEN environment variable not set")
+        base_url = args.base_url or "https://api-inference.huggingface.co/v1"
+        click.echo(f"Using Hugging Face backend with model: {args.model}")
+        click.echo(f"  Base URL: {base_url}")
+        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
 
     if args.backend == "ollama":
         base_url = _resolve_ollama_url(args.base_url)
@@ -183,10 +200,6 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
     if args.backend == "claude":
         click.echo(f"Using Claude CLI backend with model: {args.model}")
         return ClaudeCLIBackend()
-
-    if args.backend == "callback":
-        click.echo("Using mock callback backend")
-        return CallbackBackend(_mock_llm_callback)
 
     raise ValueError(f"Unknown backend: {args.backend}")
 
@@ -252,18 +265,18 @@ def main() -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=["anthropic", "ollama", "claude", "callback"],
+        choices=["anthropic", "openai", "openrouter", "huggingface", "ollama", "claude"],
         default="anthropic",
         help="LLM backend to use (default: anthropic)",
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-20250514",
-        help="Model identifier (default: claude-sonnet-4-20250514)",
+        default=None,
+        help="Model identifier (default depends on backend)",
     )
     parser.add_argument(
         "--base-url",
-        help="Base URL for OpenAI-compatible backends (overrides OLLAMA_HOST env var)",
+        help="Base URL override for OpenAI-compatible backends",
     )
     parser.add_argument(
         "--recursive-model",
