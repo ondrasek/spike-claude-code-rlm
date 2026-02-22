@@ -43,11 +43,6 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate.sh",
             "timeout": 600
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-commit.sh",
-            "timeout": 240
           }
         ]
       }
