@@ -138,6 +138,49 @@ def _resolve_model(args: argparse.Namespace) -> None:
         args.model = _BACKEND_DEFAULT_MODELS.get(args.backend, "claude-sonnet-4-20250514")
 
 
+# Keyed OpenAI-compatible presets: backend_name -> (display_name, env_var, default_url).
+_OPENAI_COMPAT_PRESETS: dict[str, tuple[str, str, str]] = {
+    "openai": ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1"),
+    "openrouter": ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
+    "huggingface": ("Hugging Face", "HF_TOKEN", "https://api-inference.huggingface.co/v1"),
+}
+
+
+def _create_keyed_openai_backend(
+    name: str, env_var: str, default_url: str, args: argparse.Namespace
+) -> OpenAICompatibleBackend:
+    """Create an OpenAI-compatible backend that requires an API key env var.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable provider name for logging.
+    env_var : str
+        Environment variable holding the API key.
+    default_url : str
+        Default base URL when ``--base-url`` is not provided.
+    args : argparse.Namespace
+        Parsed CLI arguments.
+
+    Returns
+    -------
+    OpenAICompatibleBackend
+        Configured backend.
+
+    Raises
+    ------
+    ValueError
+        If the required API key environment variable is not set.
+    """
+    api_key = os.getenv(env_var)
+    if not api_key:
+        raise ValueError(f"{env_var} environment variable not set")
+    base_url = args.base_url or default_url
+    click.echo(f"Using {name} backend with model: {args.model}")
+    click.echo(f"  Base URL: {base_url}")
+    return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
+
+
 def _create_backend(args: argparse.Namespace) -> LLMBackend:
     """Create LLM backend based on CLI arguments.
 
@@ -164,32 +207,9 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
         click.echo(f"Using Anthropic backend with model: {args.model}")
         return AnthropicBackend()
 
-    if args.backend == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-        base_url = args.base_url or "https://api.openai.com/v1"
-        click.echo(f"Using OpenAI backend with model: {args.model}")
-        click.echo(f"  Base URL: {base_url}")
-        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
-
-    if args.backend == "openrouter":
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable not set")
-        base_url = args.base_url or "https://openrouter.ai/api/v1"
-        click.echo(f"Using OpenRouter backend with model: {args.model}")
-        click.echo(f"  Base URL: {base_url}")
-        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
-
-    if args.backend == "huggingface":
-        api_key = os.getenv("HF_TOKEN")
-        if not api_key:
-            raise ValueError("HF_TOKEN environment variable not set")
-        base_url = args.base_url or "https://api-inference.huggingface.co/v1"
-        click.echo(f"Using Hugging Face backend with model: {args.model}")
-        click.echo(f"  Base URL: {base_url}")
-        return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
+    preset = _OPENAI_COMPAT_PRESETS.get(args.backend)
+    if preset:
+        return _create_keyed_openai_backend(*preset, args)
 
     if args.backend == "ollama":
         base_url = _resolve_ollama_url(args.base_url)
