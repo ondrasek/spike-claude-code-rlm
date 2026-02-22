@@ -68,7 +68,7 @@ class SettingsConfig:
     max_tokens: int | None = None
     verbose: bool | None = None
     compact: bool | None = None
-    timeout: float | None = None
+    timeout: int | None = None
     max_token_budget: int | None = None
     verify: bool | None = None
 
@@ -80,7 +80,7 @@ class RLMConfig:
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     roles: dict[str, RoleConfig] = field(default_factory=dict)
     settings: SettingsConfig = field(default_factory=SettingsConfig)
-    config_dir: Path = field(default_factory=lambda: Path.cwd())
+    config_dir: Path = field(default_factory=Path.cwd)
 
 
 @dataclass

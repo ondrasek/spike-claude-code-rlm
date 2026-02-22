@@ -74,6 +74,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
+ignore = ["UP047"]
 
 [tool.pytest.ini_options]
 markers = [

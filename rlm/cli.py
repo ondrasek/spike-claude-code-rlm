@@ -644,7 +644,9 @@ def _first_int(a: int | None, b: int | None, default: int) -> int:
     return default
 
 
-def _first_optional[T](a: T | None, b: T | None, default: T | None = None) -> T | None:
+def _first_optional(
+    a: int | float | None, b: int | float | None, default: int | float | None = None
+) -> int | float | None:
     """Return the first non-None value, or the default."""
     if a is not None:
         return a
