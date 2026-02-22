@@ -19,7 +19,7 @@ jobs:
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
       - name: Run tests
-        run: uv run pytest -x --tb=short -m "not slow"
+        run: uv run --extra dev pytest -x --tb=short -m "not slow"
 
   build:
     needs: test
