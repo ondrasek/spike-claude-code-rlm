@@ -1004,7 +1004,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rlm"
+name = "rlm-loop"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
