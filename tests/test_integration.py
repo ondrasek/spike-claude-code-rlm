@@ -160,7 +160,7 @@ class TestBackendFactory:
         [
             ("openai", "OPENAI_API_KEY", "https://api.openai.com/v1"),
             ("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
-            ("huggingface", "HF_TOKEN", "https://api-inference.huggingface.co/v1"),
+            ("huggingface", "HF_TOKEN", "https://router.huggingface.co/v1"),
         ],
     )
     def test_creates_openai_compatible_backend(

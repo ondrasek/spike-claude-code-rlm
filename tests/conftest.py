@@ -5,10 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 
 from rlm.backends import CallbackBackend
 from rlm.context import CompositeContext, LazyContext, StringContext
 from rlm.repl import REPLEnv
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Load .env before test collection so API keys are available for skip checks."""
+    load_dotenv(override=True)
+
 
 # ---------------------------------------------------------------------------
 # Sample text content

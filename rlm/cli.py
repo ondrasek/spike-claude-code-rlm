@@ -142,7 +142,7 @@ def _resolve_model(args: argparse.Namespace) -> None:
 _OPENAI_COMPAT_PRESETS: dict[str, tuple[str, str, str]] = {
     "openai": ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1"),
     "openrouter": ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
-    "huggingface": ("Hugging Face", "HF_TOKEN", "https://api-inference.huggingface.co/v1"),
+    "huggingface": ("Hugging Face", "HF_TOKEN", "https://router.huggingface.co/v1"),
 }
 
 

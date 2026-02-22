@@ -1,12 +1,13 @@
 """Live smoke tests for OpenAI, OpenRouter, and Hugging Face backends.
 
 Each test class targets a single backend and is gated by the corresponding
-API key environment variable.  Tests are marked ``slow`` plus a per-backend
-marker so they can be run selectively::
+API key environment variable.  Keys are loaded from ``.env`` via
+``python-dotenv`` (see ``conftest.py``).  Tests are marked ``slow`` plus a
+per-backend marker so they can be run selectively::
 
-    OPENAI_API_KEY=sk-... pytest -m openai -v
-    OPENROUTER_API_KEY=... pytest -m openrouter -v
-    HF_TOKEN=hf_... pytest -m huggingface -v
+    pytest -m openai -v
+    pytest -m openrouter -v
+    pytest -m huggingface -v
 
 Skipped automatically when the required environment variable is absent.
 """
@@ -51,13 +52,26 @@ _QUERY = (
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
+
+
+def _require_env(env_var: str) -> str:
+    """Return the env var value or skip the test at runtime.
+
+    Using a runtime check (instead of ``pytest.mark.skipif``) ensures
+    that ``.env`` has already been loaded by ``pytest_configure`` in
+    ``conftest.py`` before the check runs.
+    """
+    value = os.getenv(env_var)
+    if not value:
+        pytest.skip(f"{env_var} not set")
+    return value
 
 
 def _run_smoke(backend_name: str, env_var: str, base_url: str) -> RLMResult:
     """Run a single RLM completion against a live backend."""
-    api_key = os.environ[env_var]
+    api_key = _require_env(env_var)
     model = _BACKEND_DEFAULT_MODELS[backend_name]
     backend = OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
     rlm = RLM(backend=backend, model=model, max_iterations=5, max_tokens=2048, verbose=True)
@@ -68,11 +82,6 @@ def _run_smoke(backend_name: str, env_var: str, base_url: str) -> RLMResult:
 # OpenAI
 # ---------------------------------------------------------------------------
 
-_skip_no_openai_key = pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"),
-    reason="OPENAI_API_KEY not set",
-)
-
 
 @pytest.fixture(scope="module")
 def openai_result() -> RLMResult:
@@ -82,7 +91,6 @@ def openai_result() -> RLMResult:
 
 @pytest.mark.slow
 @pytest.mark.openai
-@_skip_no_openai_key
 class TestOpenAISmoke:
     """Smoke tests against the live OpenAI API."""
 
@@ -102,11 +110,6 @@ class TestOpenAISmoke:
 # OpenRouter
 # ---------------------------------------------------------------------------
 
-_skip_no_openrouter_key = pytest.mark.skipif(
-    not os.getenv("OPENROUTER_API_KEY"),
-    reason="OPENROUTER_API_KEY not set",
-)
-
 
 @pytest.fixture(scope="module")
 def openrouter_result() -> RLMResult:
@@ -116,7 +119,6 @@ def openrouter_result() -> RLMResult:
 
 @pytest.mark.slow
 @pytest.mark.openrouter
-@_skip_no_openrouter_key
 class TestOpenRouterSmoke:
     """Smoke tests against the live OpenRouter API."""
 
@@ -136,21 +138,15 @@ class TestOpenRouterSmoke:
 # Hugging Face
 # ---------------------------------------------------------------------------
 
-_skip_no_hf_token = pytest.mark.skipif(
-    not os.getenv("HF_TOKEN"),
-    reason="HF_TOKEN not set",
-)
-
 
 @pytest.fixture(scope="module")
 def huggingface_result() -> RLMResult:
     """Run the smoke query once via Hugging Face, share across tests."""
-    return _run_smoke("huggingface", "HF_TOKEN", "https://api-inference.huggingface.co/v1")
+    return _run_smoke("huggingface", "HF_TOKEN", "https://router.huggingface.co/v1")
 
 
 @pytest.mark.slow
 @pytest.mark.huggingface
-@_skip_no_hf_token
 class TestHuggingFaceSmoke:
     """Smoke tests against the live Hugging Face Inference API."""
 
