@@ -16,10 +16,10 @@ jobs:
       - name: Install pandoc and LaTeX
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-recommended texlive-fonts-recommended
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended
 
       - name: Convert ALGORITHM.md to PDF
-        run: pandoc ALGORITHM.md -o ALGORITHM.pdf
+        run: pandoc ALGORITHM.md -o ALGORITHM.pdf --pdf-engine=xelatex
 
       - name: Commit and push PDF
         run: |
