@@ -30,9 +30,9 @@ def example_anthropic() -> None:
     print(rlm.cost_summary())
 
 
-# Example 2: Using different models for root and recursive calls
+# Example 2: Using different models for root and sub-RLM calls
 def example_tiered_models() -> None:
-    """Example using expensive model for root, cheaper for recursive calls."""
+    """Example using expensive model for root, cheaper for sub-RLM calls."""
     from rlm import RLM
     from rlm.backends import AnthropicBackend
 
@@ -40,7 +40,7 @@ def example_tiered_models() -> None:
     rlm = RLM(
         backend,
         model="claude-sonnet-4-20250514",  # More capable for main reasoning
-        recursive_model="claude-haiku-3-20250813",  # Faster/cheaper for sub-tasks
+        sub_rlm_model="claude-haiku-3-20250813",  # Faster/cheaper for sub-RLM calls
         verbose=True,
     )
 

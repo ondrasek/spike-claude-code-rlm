@@ -82,7 +82,7 @@ def _run_query(query: str) -> RLMResult:
 
 
 # ---------------------------------------------------------------------------
-# Query 1: Document structure (findall only, no recursive calls)
+# Query 1: Document structure (findall only, no sub-RLM calls)
 # ---------------------------------------------------------------------------
 
 _QUERY_STRUCTURE = (
@@ -157,9 +157,9 @@ class TestBillOfRights:
     def test_completes_successfully(self, bill_of_rights_result: RLMResult) -> None:
         assert bill_of_rights_result.success, f"RLM failed: {bill_of_rights_result.error}"
 
-    def test_uses_recursive_call(self, bill_of_rights_result: RLMResult) -> None:
+    def test_uses_sub_rlm_call(self, bill_of_rights_result: RLMResult) -> None:
         assert bill_of_rights_result.success
-        assert bill_of_rights_result.stats.recursive_calls >= 1, (
+        assert bill_of_rights_result.stats.sub_rlm_calls >= 1, (
             "Expected at least one llm_query() call"
         )
 
@@ -211,9 +211,9 @@ class TestCongressionalPowers:
             f"RLM failed: {congressional_powers_result.error}"
         )
 
-    def test_uses_recursive_call(self, congressional_powers_result: RLMResult) -> None:
+    def test_uses_sub_rlm_call(self, congressional_powers_result: RLMResult) -> None:
         assert congressional_powers_result.success
-        assert congressional_powers_result.stats.recursive_calls >= 1, (
+        assert congressional_powers_result.stats.sub_rlm_calls >= 1, (
             "Expected at least one llm_query() call"
         )
 

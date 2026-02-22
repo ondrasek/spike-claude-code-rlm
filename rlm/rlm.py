@@ -15,7 +15,7 @@ import click
 from .backends import LLMBackend
 from .context import CompositeContext
 from .prompts import (
-    get_sub_llm_system_prompt,
+    get_sub_rlm_system_prompt,
     get_system_prompt,
     get_user_prompt,
     get_verifier_system_prompt,
@@ -31,7 +31,7 @@ class RLMStats:
 
     iterations: int = 0
     llm_calls: int = 0
-    recursive_calls: int = 0
+    sub_rlm_calls: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
 
@@ -50,7 +50,7 @@ class RLMResult:
 class RLM:
     """Recursive Language Model orchestrator.
 
-    Manages the interaction between the LLM, REPL environment, and recursive calls
+    Manages the interaction between the LLM, REPL environment, and sub-RLM calls
     to process contexts larger than typical LLM context windows.
     """
 
@@ -58,7 +58,7 @@ class RLM:
         self,
         backend: LLMBackend,
         model: str,
-        recursive_model: str | None = None,
+        sub_rlm_model: str | None = None,
         max_iterations: int = 10,
         max_depth: int = 3,
         max_tokens: int = 4096,
@@ -77,8 +77,8 @@ class RLM:
             LLM backend to use.
         model : str
             Model identifier for root LLM.
-        recursive_model : str | None
-            Model for llm_query calls (defaults to model).
+        sub_rlm_model : str | None
+            Model for sub-RLM calls (defaults to model).
         max_iterations : int
             Maximum REPL iterations.
         max_depth : int
@@ -100,7 +100,7 @@ class RLM:
         """
         self.backend = backend
         self.model = model
-        self.recursive_model = recursive_model or model
+        self.sub_rlm_model = sub_rlm_model or model
         self.max_iterations = max_iterations
         self.max_depth = max_depth
         self.max_tokens = max_tokens
@@ -172,7 +172,7 @@ class RLM:
             snippet : str
                 Context snippet to analyze.
             task : str
-                Task/instruction for the sub-LLM.
+                Task/instruction for the sub-RLM.
 
             Returns
             -------
@@ -183,26 +183,26 @@ class RLM:
                 return "[ERROR: Maximum recursion depth reached]"
 
             if stats is not None:
-                stats.recursive_calls += 1
+                stats.sub_rlm_calls += 1
                 stats.llm_calls += 1
 
             prompt = f"Context:\n{snippet}\n\nTask: {task}"
-            self._log(f"Recursive call (depth={current_depth + 1}): {prompt[:100]}...")
+            self._log(f"Sub-RLM call (depth={current_depth + 1}): {prompt[:100]}...")
 
             messages = [
-                {"role": "system", "content": get_sub_llm_system_prompt()},
+                {"role": "system", "content": get_sub_rlm_system_prompt()},
                 {"role": "user", "content": prompt},
             ]
 
             result = self.backend.completion(
-                messages, self.recursive_model, max_tokens=self.max_tokens
+                messages, self.sub_rlm_model, max_tokens=self.max_tokens
             )
 
             if stats is not None:
                 stats.total_input_tokens += result.usage.input_tokens
                 stats.total_output_tokens += result.usage.output_tokens
 
-            self._log(f"Recursive response: {result.text[:200]}...")
+            self._log(f"Sub-RLM response: {result.text[:200]}...")
 
             return result.text
 
@@ -403,7 +403,7 @@ class RLM:
         ]
 
         stats.llm_calls += 1
-        result = self.backend.completion(messages, self.recursive_model, max_tokens=self.max_tokens)
+        result = self.backend.completion(messages, self.sub_rlm_model, max_tokens=self.max_tokens)
         stats.total_input_tokens += result.usage.input_tokens
         stats.total_output_tokens += result.usage.output_tokens
 
@@ -489,7 +489,7 @@ class RLM:
 
         self._log(f"Starting RLM completion for query: {query}")
         self._log_context_size(context)
-        self._log(f"Model: {self.model} | Recursive model: {self.recursive_model}")
+        self._log(f"Model: {self.model} | Sub-RLM model: {self.sub_rlm_model}")
         self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
         self._log(f"Compact prompt: {self.compact_prompt}")
         system_prompt = get_system_prompt(self.compact_prompt)
@@ -632,14 +632,14 @@ class RLM:
             return {
                 "iterations": 0,
                 "llm_calls": 0,
-                "recursive_calls": 0,
+                "sub_rlm_calls": 0,
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
             }
         return {
             "iterations": self._last_stats.iterations,
             "llm_calls": self._last_stats.llm_calls,
-            "recursive_calls": self._last_stats.recursive_calls,
+            "sub_rlm_calls": self._last_stats.sub_rlm_calls,
             "total_input_tokens": self._last_stats.total_input_tokens,
             "total_output_tokens": self._last_stats.total_output_tokens,
         }

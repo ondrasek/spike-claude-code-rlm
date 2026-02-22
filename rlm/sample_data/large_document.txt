@@ -22,7 +22,7 @@ Instead of inputting the entire document into the LLM's context window, the LLM:
 
 ### Recursive Processing
 - Use llm_query() to process subsections
-- Each recursive call handles manageable chunks
+- Each sub-RLM call handles manageable chunks
 - Results are aggregated at the top level
 
 ### Security
@@ -34,10 +34,10 @@ Instead of inputting the entire document into the LLM's context window, the LLM:
 
 The RLM system consists of:
 
-1. **RLM Orchestrator**: Manages iteration loop and parses code blocks
+1. **RLM Orchestrator**: Manages the RLM loop and parses code blocks
 2. **Root LLM**: Receives query and generates exploration code
 3. **REPL Environment**: Executes code with CONTEXT variable
-4. **Recursion**: Sub-LLM calls via llm_query() function
+4. **Recursion**: Sub-RLM calls via llm_query() function
 
 ## Benefits
 

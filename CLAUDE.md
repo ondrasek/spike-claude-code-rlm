@@ -79,7 +79,7 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
   - `AnthropicBackend` — Direct Anthropic API (requires `anthropic` package, `ANTHROPIC_API_KEY` env var)
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
 - **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query(snippet, task)`, `FINAL()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
-- **`prompts.py`** (`rlm/prompts.py`): System prompts for each LLM role — `FULL_SYSTEM_PROMPT` / `COMPACT_SYSTEM_PROMPT` for the root LM (inspect-search-chunk-synthesize strategy), `SUB_LLM_SYSTEM_PROMPT` for sub-LM worker calls, and `VERIFIER_SYSTEM_PROMPT` for the optional `--verify` step.
+- **`prompts.py`** (`rlm/prompts.py`): System prompts for each LLM role — `FULL_SYSTEM_PROMPT` / `COMPACT_SYSTEM_PROMPT` for the root LM (inspect-search-chunk-synthesize strategy), `SUB_RLM_SYSTEM_PROMPT` for sub-RLM calls, and `VERIFIER_SYSTEM_PROMPT` for the optional `--verify` step.
 - **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model` (required), `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, `--no-context-sample`, `--timeout`, `--max-token-budget`, `--verify`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL and API key for each provider.
 
 ## Tech Stack and Dependencies
@@ -153,7 +153,7 @@ OLLAMA_HOST=localhost:11434 uv run pytest -m ollama -v
 - `--model` is required — there are no default models; the user must always specify one
 - `AnthropicBackend` separates system messages from chat messages per Anthropic API requirements
 - The REPL captures `print()` output (max 10,000 chars) and feeds it back to the LLM as iteration context
-- `llm_query()` calls receive a `SUB_LLM_SYSTEM_PROMPT` (text analysis role) and are limited by `max_depth` (default 3) to prevent infinite recursion
+- `llm_query()` calls receive a `SUB_RLM_SYSTEM_PROMPT` (sub-RLM role) and are limited by `max_depth` (default 3) to prevent infinite recursion
 - The main loop runs up to `max_iterations` (default 10) attempts before failing
 - `--verify` runs an optional verification sub-call on the final answer using `VERIFIER_SYSTEM_PROMPT`
 - Async methods (`acompletion`) currently delegate to their sync counterparts

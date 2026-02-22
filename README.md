@@ -37,7 +37,7 @@ This approach enables processing of documents **far exceeding** typical context 
 ┌─────────────────────────────────────────────────────────┐
 │                    REPL Environment                      │
 │  • CONTEXT variable (holds the massive text)             │
-│  • llm_query(snippet, task) for recursive calls           │
+│  • llm_query(snippet, task) for sub-RLM calls              │
 │  • FINAL(answer) for returning results                    │
 │  • Isolation delegated to container runtime               │
 └─────────────────────────────────────────────────────────┘
@@ -67,7 +67,7 @@ backend = AnthropicBackend()
 rlm = RLM(
     backend,
     model="claude-sonnet-4-20250514",
-    recursive_model="claude-haiku-3-20250813",  # Cheaper model for sub-calls
+    sub_rlm_model="claude-haiku-3-20250813",  # Cheaper model for sub-RLM calls
     verbose=True,
 )
 
@@ -138,7 +138,7 @@ python demo.py --context-file /path/to/document.txt --query "Your question here"
 RLM(
     backend: LLMBackend,           # Backend instance
     model: str,                    # Root LLM model (required)
-    recursive_model: str = None,   # Model for llm_query (defaults to model)
+    sub_rlm_model: str = None,    # Model for sub-RLM calls (defaults to model)
     max_iterations: int = 10,      # Max REPL iterations
     max_depth: int = 3,            # Max recursion depth for llm_query
     verbose: bool = False,         # Print debug output
@@ -190,7 +190,7 @@ The REPL provides these to the LLM:
 | Name | Type | Description |
 |------|------|-------------|
 | `CONTEXT` | str | The full document (never print directly!) |
-| `llm_query(snippet, task)` | function | Call sub-LLM, returns string |
+| `llm_query(snippet, task)` | function | Call sub-RLM, returns string |
 | `FINAL(answer)` | function | Set final answer and complete |
 | `re`, `json`, `math`, `collections`, `itertools` | modules | Pre-imported |
 
@@ -234,7 +234,7 @@ spike-claude-code-rlm/
 
 ✅ **Recursive Processing**
 - Configurable recursion depth
-- Separate models for root/recursive calls
+- Separate models for root/sub-RLM calls
 - Cost tracking and statistics
 
 ## References

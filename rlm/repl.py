@@ -287,7 +287,7 @@ class REPLEnv:
         snippet : str
             Context snippet to analyze.
         task : str
-            Task/instruction for the sub-LLM.
+            Task/instruction for the sub-RLM.
 
         Returns
         -------

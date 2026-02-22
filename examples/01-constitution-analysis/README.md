@@ -11,7 +11,7 @@ a different RLM strategy:
 1. **Document structure** — Uses `re.findall()` on CONTEXT to discover all Article
    and Amendment headings (regex search, no LLM sub-calls)
 2. **Bill of Rights** — Extracts a slice via `CONTEXT[start:end]` and delegates
-   summarization to `llm_query()` (chunk + recursive call)
+   summarization to `llm_query()` (chunk + sub-RLM call)
 3. **Congressional powers** — Extracts Article I, Section 8 as a slice and
    uses `llm_query()` to enumerate the powers (targeted extraction)
 

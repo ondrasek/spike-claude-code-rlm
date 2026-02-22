@@ -33,7 +33,7 @@ it may be very large.
 files are loaded. Check with `"FILES" in dir()`.
 
 ### Functions
-- `llm_query(snippet: str, task: str) -> str`: Call a sub-LLM to process text. Use this to:
+- `llm_query(snippet: str, task: str) -> str`: Call a sub-RLM to process text. Use this to:
   - Summarize sections of CONTEXT
   - Extract specific information from chunks
   - Analyze sub-sections recursively
@@ -155,7 +155,7 @@ Answer the query by writing Python code to explore CONTEXT.
   - `re.search(pattern, CONTEXT)` — first regex match
   - `CONTEXT.splitlines()` — iterate lines
   - Multi-file: `FILES` dict (check `"FILES" in dir()`)
-- `llm_query(snippet: str, task: str) -> str`: Call sub-LLM to analyze text
+- `llm_query(snippet: str, task: str) -> str`: Call sub-RLM to analyze text
 - `FINAL(answer: str)`: Return final answer
 - `SHOW_VARS()`: List user-defined variables
 - Modules: `re`, `json`, `math`, `collections`, `itertools`
@@ -176,7 +176,7 @@ Write Python code to explore CONTEXT and answer the query.
 """
 
 
-SUB_LLM_SYSTEM_PROMPT = """You are a text analysis assistant. You receive a text snippet and a task.
+SUB_RLM_SYSTEM_PROMPT = """You are a text analysis assistant. You receive a text snippet and a task.
 
 Rules:
 - Focus exclusively on the provided snippet — do not speculate about content you cannot see.
@@ -187,15 +187,15 @@ Rules:
 """
 
 
-def get_sub_llm_system_prompt() -> str:
-    """Get the system prompt for sub-LM (recursive llm_query) calls.
+def get_sub_rlm_system_prompt() -> str:
+    """Get the system prompt for sub-RLM (llm_query) calls.
 
     Returns
     -------
     str
-        System prompt for the sub-LM worker role.
+        System prompt for the sub-RLM role.
     """
-    return SUB_LLM_SYSTEM_PROMPT
+    return SUB_RLM_SYSTEM_PROMPT
 
 
 VERIFIER_SYSTEM_PROMPT = """You are a verification assistant. \

@@ -30,7 +30,7 @@ class TestRLMStats:
         stats = RLMStats()
         assert stats.iterations == 0
         assert stats.llm_calls == 0
-        assert stats.recursive_calls == 0
+        assert stats.sub_rlm_calls == 0
         assert stats.total_input_tokens == 0
         assert stats.total_output_tokens == 0
 
@@ -38,13 +38,13 @@ class TestRLMStats:
         stats = RLMStats(
             iterations=5,
             llm_calls=10,
-            recursive_calls=2,
+            sub_rlm_calls=2,
             total_input_tokens=1000,
             total_output_tokens=500,
         )
         assert stats.iterations == 5
         assert stats.llm_calls == 10
-        assert stats.recursive_calls == 2
+        assert stats.sub_rlm_calls == 2
         assert stats.total_input_tokens == 1000
         assert stats.total_output_tokens == 500
 
@@ -164,17 +164,17 @@ class TestCreateLlmQueryFn:
         result = fn("snippet", "any task")
         assert "Maximum recursion depth reached" in result
 
-    def test_stats_binding_increments_recursive_calls(self, echo_backend: CallbackBackend) -> None:
+    def test_stats_binding_increments_sub_rlm_calls(self, echo_backend: CallbackBackend) -> None:
         rlm = RLM(backend=echo_backend, model="test-model")
         fn = rlm._create_llm_query_fn("context")
         stats = RLMStats()
         fn.bind_stats(stats)  # type: ignore[attr-defined]
         fn("snippet", "test task")
-        assert stats.recursive_calls == 1
+        assert stats.sub_rlm_calls == 1
         assert stats.llm_calls == 1
 
-    def test_sub_llm_receives_system_message(self) -> None:
-        """Sub-LM calls should include a system message."""
+    def test_sub_rlm_receives_system_message(self) -> None:
+        """Sub-RLM calls should include a system message."""
         captured_messages: list[list[dict[str, str]]] = []
 
         def _capture(messages: list[dict[str, str]], model: str) -> str:
@@ -391,7 +391,7 @@ class TestCostSummary:
         summary = rlm.cost_summary()
         assert summary["iterations"] == 0
         assert summary["llm_calls"] == 0
-        assert summary["recursive_calls"] == 0
+        assert summary["sub_rlm_calls"] == 0
 
     def test_after_completion_returns_populated(self) -> None:
         backend = make_final_in_two_iterations_callback()

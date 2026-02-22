@@ -44,7 +44,7 @@ examples/
 - Basic CLI usage with `--context-file` and `--query`
 - Text search and section extraction on a real document
 - Running with Anthropic and Ollama backends
-- Verbose mode for observing the RLM iteration loop
+- Verbose mode for observing the RLM loop
 
 **Data source:** US Constitution full text (public domain, ~45KB). Bundled directly in the example directory to avoid network dependency.
 

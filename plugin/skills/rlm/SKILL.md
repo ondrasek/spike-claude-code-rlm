@@ -58,7 +58,7 @@ If no arguments are provided, ask the user which file to analyze and what to ask
 ### Additional flags
 
 - `--model <name>`: Override the LLM model (default: claude-sonnet-4-20250514)
-- `--recursive-model <name>`: Use a different (cheaper) model for recursive sub-queries
+- `--sub-rlm-model <name>`: Use a different (cheaper) model for sub-RLM calls
 - `--compact`: Use a shorter system prompt
 - `--max-iterations <n>`: Limit REPL iteration count (default: 10)
 

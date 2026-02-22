@@ -274,8 +274,8 @@ def main() -> int:
         help="Base URL override for OpenAI-compatible backends",
     )
     parser.add_argument(
-        "--recursive-model",
-        help="Model for recursive calls (defaults to --model)",
+        "--sub-rlm-model",
+        help="Model for sub-RLM calls (defaults to --model)",
     )
     parser.add_argument(
         "--context-file",
@@ -379,7 +379,7 @@ def main() -> int:
     rlm = RLM(
         backend=backend,
         model=args.model,
-        recursive_model=args.recursive_model,
+        sub_rlm_model=args.sub_rlm_model,
         max_iterations=args.max_iterations,
         max_tokens=args.max_tokens,
         verbose=args.verbose,
