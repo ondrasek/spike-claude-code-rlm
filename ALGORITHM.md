@@ -87,7 +87,7 @@ Return final answer
 | **Initial context exposure** | Root LM sees only the query; CONTEXT is opaque until code runs | Context sample included by default; `--no-context-sample` disables it | **Aligned** — can now match paper's opaque-context design via flag |
 | **`llm_query` signature** | `llm_query(snippet, task)` — two args | `llm_query(snippet, task)` — two args | **Match** |
 | **Recursive depth** | Depth-1 only (root → sub-RLM, no deeper) | Configurable `max_depth=3` (supports multi-level recursion) | We're ahead of the paper here |
-| **Sub-RLM model** | Smaller/cheaper model for sub-calls (e.g., GPT-5-mini when root is GPT-5) | `--sub-rlm-model` param exists but defaults to same model as `--model` | Paper's design is more cost-efficient |
+| **Sub-RLM model** | Smaller/cheaper model for sub-calls (e.g., GPT-5-mini when root is GPT-5) | `--sub-rlm-model` param exists but defaults to same model as `--model`; per-role backends/models via `--config` YAML | Paper's design is more cost-efficient; config file enables it |
 | **System prompt for sub-calls** | Not detailed | Minimal task-focused system prompt (text analysis role) | Aligned — sub-calls now receive focused guidance |
 | **Termination** | `FINAL()` + max iterations + timeouts | `FINAL()` + max iterations + `--timeout` + `--max-token-budget` | **Match** |
 | **Default model** | Not applicable (paper uses specific models per experiment) | `--model` is required (no defaults) | **Aligned** — user must choose explicitly |
@@ -109,14 +109,16 @@ The RLM pattern uses two distinct LLM tiers with different responsibilities:
 
 ### Role Comparison
 
-| Aspect | Root LM | Sub-RLM |
-|--------|---------------------------|-----------------|
-| Depth | 0 | 1+ (up to `max_depth`) |
-| System prompt | Full strategy prompt (~120 lines) or compact (~25 lines) | Minimal task-focused prompt |
-| Conversation | Multi-turn (code → output → code → ... → FINAL) | Single-turn (one prompt, one response) |
-| Produces | Python code in ` ```python ` blocks | Plain text (summary, extraction, analysis) |
-| Has access to | `CONTEXT`, `FILES`, `llm_query()`, `FINAL()`, `SHOW_VARS()`, pre-imported modules | Only the snippet passed by root |
-| Model | `--model` | `--sub-rlm-model` (defaults to `--model`) |
+| Aspect | Root LM | Sub-RLM | Verifier |
+|--------|---------------------------|-----------------|----------|
+| Depth | 0 | 1+ (up to `max_depth`) | 0 (post-processing) |
+| System prompt | Full strategy prompt (~120 lines) or compact (~25 lines) | Minimal task-focused prompt | Verification-focused prompt |
+| Conversation | Multi-turn (code → output → code → ... → FINAL) | Single-turn (one prompt, one response) | Single-turn |
+| Produces | Python code in ` ```python ` blocks | Plain text (summary, extraction, analysis) | VERIFIED or ISSUES: ... |
+| Has access to | `CONTEXT`, `FILES`, `llm_query()`, `FINAL()`, `SHOW_VARS()`, pre-imported modules | Only the snippet passed by root | Proposed answer + evidence |
+| Model | `--model` | `--sub-rlm-model` (defaults to `--model`) | Config only (defaults to sub-RLM model) |
+| Backend | `--backend` or config | Config only (defaults to root's) | Config only (defaults to root's) |
+| Custom prompt | Via `--config` `roles.root.system_prompt` | Via `--config` `roles.sub_rlm.system_prompt` | Via `--config` `roles.verifier.system_prompt` |
 
 ### Root LM Responsibilities
 

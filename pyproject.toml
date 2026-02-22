@@ -28,6 +28,7 @@ dependencies = [
     "anthropic>=0.39.0",
     "click>=8.0.0",
     "openai>=1.0.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,7 @@ dev = [
     "deptry>=0.12.0",
     "codespell>=2.2.0",
     "pre-commit>=3.0.0",
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -99,4 +101,4 @@ root_package = "rlm"
 [[tool.importlinter.contracts]]
 name = "rlm layering"
 type = "layers"
-layers = ["rlm.cli", "rlm.rlm", "rlm.repl", "rlm.context", "rlm.backends", "rlm.prompts"]
+layers = ["rlm.cli", "rlm.config", "rlm.rlm", "rlm.repl", "rlm.context", "rlm.backends", "rlm.prompts"]

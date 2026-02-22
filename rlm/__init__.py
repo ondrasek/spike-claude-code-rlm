@@ -33,6 +33,15 @@ from .backends import (
     OpenAICompatibleBackend,
     TokenUsage,
 )
+from .config import (
+    ConfigError,
+    DefaultsConfig,
+    ResolvedRoleConfig,
+    RLMConfig,
+    RoleConfig,
+    SettingsConfig,
+    load_config,
+)
 from .context import CompositeContext, LazyContext, StringContext
 from .repl import REPLEnv, REPLResult
 from .rlm import RLM, RLMResult, RLMStats
@@ -54,4 +63,11 @@ __all__ = [
     "StringContext",
     "REPLEnv",
     "REPLResult",
+    "RLMConfig",
+    "DefaultsConfig",
+    "RoleConfig",
+    "ResolvedRoleConfig",
+    "SettingsConfig",
+    "ConfigError",
+    "load_config",
 ]

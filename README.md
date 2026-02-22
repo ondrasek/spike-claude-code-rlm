@@ -130,6 +130,39 @@ python demo.py --backend ollama --model llama3.2 --verbose
 python demo.py --context-file /path/to/document.txt --query "Your question here"
 ```
 
+## Configuration File
+
+Use `--config rlm.yaml` to configure per-role backends, models, and system prompts:
+
+```yaml
+defaults:
+  backend: anthropic
+  model: claude-sonnet-4-20250514
+
+roles:
+  root:
+    model: claude-sonnet-4-20250514
+  sub_rlm:
+    backend: ollama
+    model: llama3.2
+    base_url: http://localhost:11434/v1
+  verifier:
+    model: claude-haiku-4-5-20251001
+
+settings:
+  max_iterations: 10
+  verbose: true
+  verify: true
+```
+
+```bash
+uvx rlm --config rlm.yaml --context-file doc.txt --query "Summarize"
+```
+
+CLI flags always override config values. Merge priority: `CLI flags > roles.{role} > defaults > hardcoded defaults`.
+
+Roles support `system_prompt` (inline) or `system_prompt_file` (path relative to config file) for custom system prompts.
+
 ## API Reference
 
 ### RLM Class

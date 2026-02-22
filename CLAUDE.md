@@ -39,6 +39,7 @@ spike-claude-code-rlm/
 │   ├── __init__.py             # Public API exports and version
 │   ├── __main__.py             # python -m rlm support
 │   ├── cli.py                  # CLI entry point (uvx rlm / python -m rlm)
+│   ├── config.py               # YAML config loading, validation, per-role resolution
 │   ├── rlm.py                  # RLM orchestrator (iteration loop, code extraction)
 │   ├── backends.py             # LLM backend implementations (Anthropic, OpenAI-compat)
 │   ├── repl.py                 # REPL environment (container-isolated)
@@ -80,13 +81,14 @@ The system follows a loop: **User Query -> RLM Orchestrator -> LLM Backend -> Co
   - `OpenAICompatibleBackend` — For Ollama, vLLM, LM Studio (requires `openai` package, default URL `http://localhost:11434/v1`)
 - **`REPLEnv`** (`rlm/repl.py`): Execution environment providing `CONTEXT` (a plain Python `str`), `FILES` dict (when multi-file), `SHOW_VARS()`, `llm_query(snippet, task)`, `FINAL()`, and pre-imported modules (`re`, `json`, `math`, `collections`, `itertools`). Context classes from `context.py` are used internally for file I/O but materialised to plain `str` before injection into the namespace. Isolation is delegated to the container runtime.
 - **`prompts.py`** (`rlm/prompts.py`): System prompts for each LLM role — `FULL_SYSTEM_PROMPT` / `COMPACT_SYSTEM_PROMPT` for the root LM (inspect-search-chunk-synthesize strategy), `SUB_RLM_SYSTEM_PROMPT` for sub-RLM calls, and `VERIFIER_SYSTEM_PROMPT` for the optional `--verify` step.
-- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model` (required), `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, `--no-context-sample`, `--timeout`, `--max-token-budget`, `--verify`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL and API key for each provider.
+- **`config.py`** (`rlm/config.py`): YAML configuration loader for per-role LLM settings. Dataclasses: `DefaultsConfig`, `RoleConfig`, `SettingsConfig`, `RLMConfig`, `ResolvedRoleConfig`. Functions: `load_config(path)` parses YAML, `resolve_role(name, config)` merges role > defaults and resolves env vars / prompt files. No `rlm.*` imports — consumed only by `cli.py`.
+- **`cli.py`** (`rlm/cli.py`): CLI entry point registered as `[project.scripts] rlm = "rlm.cli:main"`. Provides argparse-based interface with `--backend` (anthropic, openai, openrouter, huggingface, ollama, claude), `--model`, `--config` (YAML config file for per-role settings), `--context-file`, `--query`, `--verbose`, `--compact`, `--max-iterations`, `--no-context-sample`, `--timeout`, `--max-token-budget`, `--verify`, and `--version` flags. The `_create_backend()` factory configures `OpenAICompatibleBackend` with the correct base URL and API key for each provider. When `--config` is provided, per-role backends are created via `_create_backend_from_resolved()` with merge priority: CLI flags > roles.{role} > defaults > hardcoded defaults.
 
 ## Tech Stack and Dependencies
 
 - **Python:** >=3.11 (target: 3.13)
 - **Build backend:** `hatchling`
-- **Required:** `anthropic>=0.39.0`
+- **Required:** `anthropic>=0.39.0`, `pyyaml>=6.0`
 - **Optional extras:**
   - `ollama`: `openai>=1.0.0` (for OpenAI-compatible backends)
   - `dev`: `ruff>=0.8.0`, `mypy>=1.14.0`

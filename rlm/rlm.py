@@ -68,13 +68,19 @@ class RLM:
         timeout: float | None = None,
         max_token_budget: int | None = None,
         verify: bool = False,
+        sub_rlm_backend: LLMBackend | None = None,
+        verifier_backend: LLMBackend | None = None,
+        verifier_model: str | None = None,
+        root_system_prompt: str | None = None,
+        sub_rlm_system_prompt: str | None = None,
+        verifier_system_prompt: str | None = None,
     ) -> None:
         """Initialize RLM orchestrator.
 
         Parameters
         ----------
         backend : LLMBackend
-            LLM backend to use.
+            LLM backend to use for the root role.
         model : str
             Model identifier for root LLM.
         sub_rlm_model : str | None
@@ -97,6 +103,18 @@ class RLM:
             Maximum total tokens (input + output). None means no limit.
         verify : bool
             Run a verification sub-call on the final answer.
+        sub_rlm_backend : LLMBackend | None
+            Separate backend for sub-RLM calls (defaults to backend).
+        verifier_backend : LLMBackend | None
+            Separate backend for verification calls (defaults to backend).
+        verifier_model : str | None
+            Model for verification calls (defaults to sub_rlm_model).
+        root_system_prompt : str | None
+            Custom system prompt for the root role.
+        sub_rlm_system_prompt : str | None
+            Custom system prompt for the sub-RLM role.
+        verifier_system_prompt : str | None
+            Custom system prompt for the verifier role.
         """
         self.backend = backend
         self.model = model
@@ -110,6 +128,12 @@ class RLM:
         self.timeout = timeout
         self.max_token_budget = max_token_budget
         self.verify = verify
+        self.sub_rlm_backend = sub_rlm_backend or backend
+        self.verifier_backend = verifier_backend or backend
+        self.verifier_model = verifier_model or self.sub_rlm_model
+        self.root_system_prompt = root_system_prompt
+        self.sub_rlm_system_prompt = sub_rlm_system_prompt
+        self.verifier_system_prompt = verifier_system_prompt
 
     def _log(self, message: str) -> None:
         """Log a message if verbose is enabled.
@@ -189,12 +213,13 @@ class RLM:
             prompt = f"Context:\n{snippet}\n\nTask: {task}"
             self._log(f"Sub-RLM call (depth={current_depth + 1}): {prompt[:100]}...")
 
+            sub_prompt = self.sub_rlm_system_prompt or get_sub_rlm_system_prompt()
             messages = [
-                {"role": "system", "content": get_sub_rlm_system_prompt()},
+                {"role": "system", "content": sub_prompt},
                 {"role": "user", "content": prompt},
             ]
 
-            result = self.backend.completion(
+            result = self.sub_rlm_backend.completion(
                 messages, self.sub_rlm_model, max_tokens=self.max_tokens
             )
 
@@ -397,13 +422,16 @@ class RLM:
             f"Proposed answer:\n{answer}\n\n"
             f"Supporting evidence (first 5000 chars of source):\n{evidence}"
         )
+        v_prompt = self.verifier_system_prompt or get_verifier_system_prompt()
         messages = [
-            {"role": "system", "content": get_verifier_system_prompt()},
+            {"role": "system", "content": v_prompt},
             {"role": "user", "content": prompt},
         ]
 
         stats.llm_calls += 1
-        result = self.backend.completion(messages, self.sub_rlm_model, max_tokens=self.max_tokens)
+        result = self.verifier_backend.completion(
+            messages, self.verifier_model, max_tokens=self.max_tokens
+        )
         stats.total_input_tokens += result.usage.input_tokens
         stats.total_output_tokens += result.usage.output_tokens
 
@@ -414,6 +442,57 @@ class RLM:
             self._log("Verification found issues")
             return f"{answer}\n\n[Verification note: {verdict}]"
 
+        return answer
+
+    def _call_llm(
+        self,
+        messages: list[dict[str, str]],
+        stats: RLMStats,
+        history: list[dict[str, Any]],
+    ) -> tuple[str, RLMResult | None]:
+        """Call the root LLM and update stats.
+
+        Returns
+        -------
+        tuple[str, RLMResult | None]
+            (response_text, error_result). error_result is None on success.
+        """
+        try:
+            result = self.backend.completion(messages, self.model, max_tokens=self.max_tokens)
+        except Exception as e:
+            error_msg = f"LLM call failed: {e!s}"
+            self._log(f"ERROR: {error_msg}")
+            return "", RLMResult(
+                answer="",
+                stats=stats,
+                history=history,
+                success=False,
+                error=error_msg,
+            )
+
+        stats.total_input_tokens += result.usage.input_tokens
+        stats.total_output_tokens += result.usage.output_tokens
+        self._log(
+            f"LLM response: {len(result.text)} chars "
+            f"(in={result.usage.input_tokens} out={result.usage.output_tokens} tokens)"
+        )
+        return result.text, None
+
+    def _finalize_answer(
+        self,
+        answer: str,
+        repl: REPLEnv,
+        stats: RLMStats,
+    ) -> str:
+        """Optionally verify and return the final answer.
+
+        Returns
+        -------
+        str
+            The (possibly verified) final answer.
+        """
+        if self.verify:
+            return self._verify_answer(answer, repl.context_str, stats)
         return answer
 
     def _handle_no_code_blocks(
@@ -482,8 +561,9 @@ class RLM:
 
         # Build conversation with injected document sample
         context_sample = self._build_context_sample(repl) if self.include_context_sample else ""
+        root_prompt = self.root_system_prompt or get_system_prompt(self.compact_prompt)
         messages = [
-            {"role": "system", "content": get_system_prompt(self.compact_prompt)},
+            {"role": "system", "content": root_prompt},
             {"role": "user", "content": get_user_prompt(query, context_sample)},
         ]
 
@@ -492,8 +572,7 @@ class RLM:
         self._log(f"Model: {self.model} | Sub-RLM model: {self.sub_rlm_model}")
         self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
         self._log(f"Compact prompt: {self.compact_prompt}")
-        system_prompt = get_system_prompt(self.compact_prompt)
-        self._log(f"System prompt length: {len(system_prompt):,} chars")
+        self._log(f"System prompt length: {len(root_prompt):,} chars")
 
         start_time = time.monotonic()
 
@@ -515,26 +594,9 @@ class RLM:
             self._log(f"Conversation messages: {len(messages)}")
 
             # Get LLM response
-            try:
-                result = self.backend.completion(messages, self.model, max_tokens=self.max_tokens)
-                response = result.text
-                stats.total_input_tokens += result.usage.input_tokens
-                stats.total_output_tokens += result.usage.output_tokens
-                self._log(
-                    f"LLM response: {len(response)} chars "
-                    f"(in={result.usage.input_tokens} out={result.usage.output_tokens} tokens)"
-                )
-
-            except Exception as e:
-                error_msg = f"LLM call failed: {e!s}"
-                self._log(f"ERROR: {error_msg}")
-                return RLMResult(
-                    answer="",
-                    stats=stats,
-                    history=history,
-                    success=False,
-                    error=error_msg,
-                )
+            response, error_result = self._call_llm(messages, stats, history)
+            if error_result is not None:
+                return error_result
 
             # Add to conversation history
             messages.append({"role": "assistant", "content": response})
@@ -552,8 +614,7 @@ class RLM:
             all_output, final_answer = self._execute_code_blocks(code_blocks, repl)
 
             if final_answer:
-                if self.verify:
-                    final_answer = self._verify_answer(final_answer, repl.context_str, stats)
+                final_answer = self._finalize_answer(final_answer, repl, stats)
                 history.append(
                     {
                         "iteration": iteration + 1,

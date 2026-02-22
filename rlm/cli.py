@@ -11,7 +11,10 @@ Usage:
     uvx rlm --context-file document.txt --query "What are the main themes?"
     uvx rlm --backend openai --context-file doc.txt --query "Summarize"
     uvx rlm --backend ollama --model llama3.2 --context-file doc.txt --query "Summarize"
+    uvx rlm --config rlm.yaml --context-file doc.txt --query "Summarize"
 """
+
+from __future__ import annotations
 
 import argparse
 import os
@@ -26,6 +29,7 @@ from .backends import (
     LLMBackend,
     OpenAICompatibleBackend,
 )
+from .config import ConfigError, ResolvedRoleConfig, SettingsConfig, load_config, resolve_role
 from .context import CompositeContext
 from .rlm import RLM
 
@@ -199,6 +203,72 @@ def _create_backend(args: argparse.Namespace) -> LLMBackend:
     raise ValueError(f"Unknown backend: {args.backend}")
 
 
+def _resolve_api_key(resolved: ResolvedRoleConfig, env_var: str, role_name: str) -> str:
+    """Resolve an API key from the config or environment, raising on missing."""
+    api_key = resolved.api_key or os.getenv(env_var)
+    if not api_key:
+        raise ValueError(f"{env_var} not set (needed for {role_name} role)")
+    return api_key
+
+
+def _create_backend_from_resolved(resolved: ResolvedRoleConfig, role_name: str) -> LLMBackend:
+    """Create an LLM backend from a resolved role config.
+
+    Parameters
+    ----------
+    resolved : ResolvedRoleConfig
+        Resolved configuration for one role.
+    role_name : str
+        Role name (for logging).
+
+    Returns
+    -------
+    LLMBackend
+        Configured backend instance.
+
+    Raises
+    ------
+    ValueError
+        If the backend name is unknown or a required API key is missing.
+    """
+    backend_name = resolved.backend or "anthropic"
+
+    if backend_name == "anthropic":
+        api_key = _resolve_api_key(resolved, "ANTHROPIC_API_KEY", role_name)
+        click.echo(f"Using Anthropic backend for {role_name}")
+        return AnthropicBackend(api_key=api_key)
+
+    preset = _OPENAI_COMPAT_PRESETS.get(backend_name)
+    if preset:
+        return _create_preset_backend_from_resolved(preset, resolved, role_name)
+
+    if backend_name == "ollama":
+        base_url = _resolve_ollama_url(resolved.base_url)
+        click.echo(f"Using Ollama backend for {role_name}")
+        click.echo(f"  Base URL: {base_url}")
+        return OpenAICompatibleBackend(base_url=base_url, api_key="ollama")
+
+    if backend_name == "claude":
+        click.echo(f"Using Claude CLI backend for {role_name}")
+        return ClaudeCLIBackend()
+
+    raise ValueError(f"Unknown backend '{backend_name}' for {role_name} role")
+
+
+def _create_preset_backend_from_resolved(
+    preset: tuple[str, str, str],
+    resolved: ResolvedRoleConfig,
+    role_name: str,
+) -> OpenAICompatibleBackend:
+    """Create an OpenAI-compatible backend from a preset and resolved config."""
+    display_name, env_var, default_url = preset
+    api_key = _resolve_api_key(resolved, env_var, role_name)
+    base_url = resolved.base_url or default_url
+    click.echo(f"Using {display_name} backend for {role_name}")
+    click.echo(f"  Base URL: {base_url}")
+    return OpenAICompatibleBackend(base_url=base_url, api_key=api_key)
+
+
 def _run_completion(rlm: RLM, context: str | Path | CompositeContext, query: str) -> int:
     """Execute the RLM completion loop and print results.
 
@@ -246,6 +316,11 @@ def _run_completion(rlm: RLM, context: str | Path | CompositeContext, query: str
     return 0
 
 
+def _roles_differ(a: ResolvedRoleConfig, b: ResolvedRoleConfig) -> bool:
+    """Return True if two resolved configs need separate backends."""
+    return (a.backend != b.backend) or (a.base_url != b.base_url) or (a.api_key != b.api_key)
+
+
 def main() -> int:
     """Main CLI entry point.
 
@@ -261,13 +336,13 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         choices=["anthropic", "openai", "openrouter", "huggingface", "ollama", "claude"],
-        default="anthropic",
+        default=None,
         help="LLM backend to use (default: anthropic)",
     )
     parser.add_argument(
         "--model",
-        required=True,
-        help="Model identifier (required)",
+        default=None,
+        help="Model identifier (required unless set in config)",
     )
     parser.add_argument(
         "--base-url",
@@ -276,6 +351,12 @@ def main() -> int:
     parser.add_argument(
         "--sub-rlm-model",
         help="Model for sub-RLM calls (defaults to --model)",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to YAML configuration file for per-role LLM settings",
     )
     parser.add_argument(
         "--context-file",
@@ -312,13 +393,13 @@ def main() -> int:
     parser.add_argument(
         "--max-iterations",
         type=int,
-        default=10,
+        default=None,
         help="Maximum REPL iterations (default: 10)",
     )
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=4096,
+        default=None,
         help="Maximum tokens per LLM response (default: 4096)",
     )
     parser.add_argument(
@@ -351,7 +432,28 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Load context — files are memory-mapped so contexts larger than RAM work.
+    # ------------------------------------------------------------------
+    # Config-aware path
+    # ------------------------------------------------------------------
+    if args.config:
+        return _main_with_config(args)
+    return _main_legacy(args)
+
+
+def _main_legacy(args: argparse.Namespace) -> int:
+    """Original main() path — no config file."""
+    # Apply hardcoded defaults for values that argparse no longer defaults
+    backend_name = args.backend or "anthropic"
+    args.backend = backend_name
+    model = args.model
+    if not model:
+        click.echo("Error: --model is required (or use --config with a config file)", err=True)
+        return 1
+
+    max_iterations = args.max_iterations if args.max_iterations is not None else 10
+    max_tokens = args.max_tokens if args.max_tokens is not None else 4096
+
+    # Load context
     try:
         context = _load_context(args)
     except (FileNotFoundError, NotADirectoryError) as e:
@@ -378,10 +480,10 @@ def main() -> int:
     # Create RLM instance
     rlm = RLM(
         backend=backend,
-        model=args.model,
+        model=model,
         sub_rlm_model=args.sub_rlm_model,
-        max_iterations=args.max_iterations,
-        max_tokens=args.max_tokens,
+        max_iterations=max_iterations,
+        max_tokens=max_tokens,
         verbose=args.verbose,
         compact_prompt=args.compact,
         include_context_sample=not args.no_context_sample,
@@ -391,6 +493,164 @@ def main() -> int:
     )
 
     return _run_completion(rlm, context, args.query)
+
+
+def _apply_cli_overrides(
+    args: argparse.Namespace,
+    root: ResolvedRoleConfig,
+    sub_rlm: ResolvedRoleConfig,
+) -> None:
+    """Apply CLI flag overrides to resolved role configs (mutates in place)."""
+    if args.backend is not None:
+        root.backend = args.backend
+    if args.model is not None:
+        root.model = args.model
+    if args.base_url is not None:
+        root.base_url = args.base_url
+    if args.sub_rlm_model is not None:
+        sub_rlm.model = args.sub_rlm_model
+
+
+def _cascade_role_defaults(source: ResolvedRoleConfig, target: ResolvedRoleConfig) -> None:
+    """Fill None fields in *target* from *source* (mutates target)."""
+    if target.backend is None:
+        target.backend = source.backend
+    if target.model is None:
+        target.model = source.model
+    if target.base_url is None:
+        target.base_url = source.base_url
+    if target.api_key is None:
+        target.api_key = source.api_key
+
+
+def _merge_settings(args: argparse.Namespace, cfg: SettingsConfig) -> dict[str, object]:
+    """Merge CLI args with config settings and hardcoded defaults."""
+    return {
+        "max_iterations": _first_int(args.max_iterations, cfg.max_iterations, 10),
+        "max_depth": _first_int(None, cfg.max_depth, 3),
+        "max_tokens": _first_int(args.max_tokens, cfg.max_tokens, 4096),
+        "verbose": args.verbose or (cfg.verbose is True),
+        "compact": args.compact or (cfg.compact is True),
+        "timeout": _first_optional(args.timeout, cfg.timeout),
+        "max_token_budget": _first_optional(args.max_token_budget, cfg.max_token_budget),
+        "verify": args.verify or (cfg.verify is True),
+    }
+
+
+def _create_role_backends(
+    root: ResolvedRoleConfig,
+    sub_rlm: ResolvedRoleConfig,
+    verifier: ResolvedRoleConfig,
+) -> tuple[LLMBackend, LLMBackend, LLMBackend]:
+    """Create per-role backends, sharing root backend when configs match."""
+    root_backend = _create_backend_from_resolved(root, "root")
+    sub_rlm_backend = (
+        _create_backend_from_resolved(sub_rlm, "sub_rlm")
+        if _roles_differ(sub_rlm, root)
+        else root_backend
+    )
+    verifier_backend = (
+        _create_backend_from_resolved(verifier, "verifier")
+        if _roles_differ(verifier, root)
+        else root_backend
+    )
+    return root_backend, sub_rlm_backend, verifier_backend
+
+
+def _main_with_config(args: argparse.Namespace) -> int:
+    """Config-aware main() path."""
+    # Load and validate config
+    try:
+        config = load_config(args.config)
+    except (FileNotFoundError, ConfigError) as e:
+        click.echo(f"Config error: {e}", err=True)
+        return 1
+
+    # Resolve per-role configs and apply overrides
+    root_resolved = resolve_role("root", config)
+    sub_rlm_resolved = resolve_role("sub_rlm", config)
+    verifier_resolved = resolve_role("verifier", config)
+
+    _apply_cli_overrides(args, root_resolved, sub_rlm_resolved)
+    _cascade_role_defaults(root_resolved, sub_rlm_resolved)
+    _cascade_role_defaults(sub_rlm_resolved, verifier_resolved)
+
+    # Apply fallback backend
+    if root_resolved.backend is None:
+        root_resolved.backend = "anthropic"
+
+    # Validate model is available
+    if not root_resolved.model:
+        click.echo(
+            "Error: --model is required (neither CLI nor config provides a root model)", err=True
+        )
+        return 1
+
+    # Merge settings
+    settings = _merge_settings(args, config.settings)
+
+    # Load context
+    try:
+        context = _load_context(args)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        click.echo(f"Error: {e}", err=True)
+        return 1
+    except Exception as e:
+        click.echo(f"Error loading context: {e}", err=True)
+        return 1
+
+    click.echo(f"Query: {args.query}\n")
+
+    # Create per-role backends
+    try:
+        root_backend, sub_rlm_backend, verifier_backend = _create_role_backends(
+            root_resolved, sub_rlm_resolved, verifier_resolved
+        )
+    except (ValueError, ImportError) as e:
+        click.echo(f"Error: {e}", err=True)
+        return 1
+
+    # Create RLM instance with per-role config
+    rlm = RLM(
+        backend=root_backend,
+        model=root_resolved.model,
+        sub_rlm_model=sub_rlm_resolved.model,
+        max_iterations=settings["max_iterations"],  # type: ignore[arg-type]
+        max_depth=settings["max_depth"],  # type: ignore[arg-type]
+        max_tokens=settings["max_tokens"],  # type: ignore[arg-type]
+        verbose=settings["verbose"],  # type: ignore[arg-type]
+        compact_prompt=settings["compact"],  # type: ignore[arg-type]
+        include_context_sample=not args.no_context_sample,
+        timeout=settings["timeout"],  # type: ignore[arg-type]
+        max_token_budget=settings["max_token_budget"],  # type: ignore[arg-type]
+        verify=settings["verify"],  # type: ignore[arg-type]
+        sub_rlm_backend=sub_rlm_backend,
+        verifier_backend=verifier_backend,
+        verifier_model=verifier_resolved.model,
+        root_system_prompt=root_resolved.system_prompt,
+        sub_rlm_system_prompt=sub_rlm_resolved.system_prompt,
+        verifier_system_prompt=verifier_resolved.system_prompt,
+    )
+
+    return _run_completion(rlm, context, args.query)
+
+
+def _first_int(a: int | None, b: int | None, default: int) -> int:
+    """Return the first non-None int, or the default."""
+    if a is not None:
+        return a
+    if b is not None:
+        return b
+    return default
+
+
+def _first_optional[T](a: T | None, b: T | None, default: T | None = None) -> T | None:
+    """Return the first non-None value, or the default."""
+    if a is not None:
+        return a
+    if b is not None:
+        return b
+    return default
 
 
 def _get_version() -> str:
