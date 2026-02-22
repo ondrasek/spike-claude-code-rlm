@@ -22,35 +22,20 @@ export CLAUDE_HOOK_RUNNING=1
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# --- Shared push helper: pull --rebase then push, with retry ---
+# --- Shared push helper: push or fail with exit 2 ---
 do_push() {
-    local max_retries=2
-    local attempt=0
-    while [ $attempt -lt $max_retries ]; do
-        attempt=$((attempt + 1))
-        push_output=$(git push -u origin HEAD 2>&1) && {
-            echo "[auto-commit] Push successful" >&2
-            debuglog "=== HOOK FINISHED — push successful (exit 0) ==="
-            return 0
-        }
-        # Check if rejected due to remote being ahead
-        if echo "$push_output" | grep -q "fetch first\|non-fast-forward"; then
-            echo "[auto-commit] Remote is ahead, pulling with rebase (attempt $attempt)..." >&2
-            debuglog "Pull --rebase (attempt $attempt)"
-            pull_output=$(git pull --rebase origin main 2>&1) || {
-                echo "[auto-commit] Pull --rebase failed: $pull_output" >&2
-                debuglog "Pull --rebase failed: $pull_output"
-                return 1
-            }
-        else
-            echo "[auto-commit] Push failed: $push_output" >&2
-            debuglog "Push failed (non-recoverable): $push_output"
-            return 1
-        fi
-    done
-    echo "[auto-commit] Push failed after $max_retries attempts" >&2
-    debuglog "Push failed after $max_retries attempts"
-    return 1
+    push_output=$(git push -u origin HEAD 2>&1) && {
+        echo "[auto-commit] Push successful" >&2
+        debuglog "=== HOOK FINISHED — push successful (exit 0) ==="
+        return 0
+    }
+    echo "" >&2
+    echo "[auto-commit] Push failed:" >&2
+    echo "$push_output" >&2
+    echo "" >&2
+    echo "Please resolve the issue (e.g. git pull --rebase) and push." >&2
+    debuglog "Push failed: $push_output"
+    exit 2
 }
 
 # Check for uncommitted changes
@@ -60,7 +45,7 @@ if [ -z "$(git status --porcelain)" ]; then
     if [ -n "$unpushed" ]; then
         echo "[auto-commit] No uncommitted changes, but found unpushed commits" >&2
         debuglog "Pushing unpushed commits"
-        do_push || exit 0
+        do_push
         exit 0
     fi
     echo "[auto-commit] No changes to commit" >&2
@@ -105,6 +90,6 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>" 2>&1) || {
 echo "[auto-commit] Commit successful" >&2
 
 echo "[auto-commit] Pushing to origin..." >&2
-do_push || exit 0
+do_push
 
 exit 0
