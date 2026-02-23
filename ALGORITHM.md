@@ -61,6 +61,150 @@ Return RLMResult(answer, stats, history)
 Key files: `rlm/rlm.py` (orchestrator), `rlm/repl.py` (REPL environment),
 `rlm/prompts.py` (system prompts), `rlm/backends.py` (LLM backends)
 
+### LLM Role Interaction (Sequence Diagram)
+
+Shows the full interaction between all four LLM roles during a single
+`completion()` call with `context_engineer_mode="both"`, `share_brief_with_root=True`,
+and `verify=True` (all features enabled).
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant O as RLM Orchestrator
+    participant CE as Context Engineer
+    participant Root as Root LM
+    participant REPL as REPL Environment
+    participant Sub as Sub-RLM
+    participant V as Verifier
+
+    User->>O: completion(context, query)
+
+    Note over O: _setup_completion()
+
+    O->>O: Create REPL + llm_query closure
+    O->>O: Build document sample<br/>(4 × 600-char excerpts)
+
+    rect rgb(240, 248, 255)
+        Note over O,CE: Context Engineer — pre_loop<br/>(if mode = pre_loop | both)
+        O->>CE: system: CE_PRE_LOOP_PROMPT<br/>user: query + document sample
+        CE-->>O: Document brief (200–500 words)
+        O->>O: Bind brief to llm_query closure
+        Note over O: If share_brief_with_root:<br/>prepend brief to root user prompt
+    end
+
+    O->>O: Build messages:<br/>[system_prompt, user_prompt + sample + brief?]
+
+    loop Main iteration loop (max_iterations, timeout, token budget)
+        O->>O: Check guards (timeout, token budget)
+
+        O->>Root: messages (full conversation history)
+        Root-->>O: Response with ```python``` blocks
+
+        O->>O: Extract code blocks (regex)
+
+        alt No code blocks found
+            alt "FINAL" in response text
+                Note over O: Break loop
+            else
+                O->>O: Append "Please provide Python code"
+                Note over O: Continue loop
+            end
+        else Code blocks found
+            O->>REPL: Execute code blocks sequentially
+
+            opt Code calls llm_query(snippet, task)
+                rect rgb(255, 248, 240)
+                    Note over REPL,CE: Context Engineer — per_query<br/>(if mode = per_query | both)
+                    REPL->>O: llm_query(snippet, task)
+                    O->>O: Locate snippet in CONTEXT<br/>(find first 200 chars)
+                    O->>O: Extract ~500 chars before + after
+                    O->>CE: system: CE_PER_QUERY_PROMPT<br/>user: task + position + surrounding text + snippet
+                    CE-->>O: Context note (50–150 words)
+                end
+
+                rect rgb(240, 255, 240)
+                    Note over O,Sub: Sub-RLM call
+                    O->>Sub: system: SUB_RLM_PROMPT<br/>user: [brief] + [context note] + snippet + task
+                    Sub-->>O: Plain text analysis
+                end
+                O-->>REPL: Return sub-RLM response
+            end
+
+            REPL-->>O: Execution output (print + final_answer?)
+
+            alt FINAL() called
+                Note over O: Break loop → finalize
+            else No FINAL yet
+                O->>O: Append output to messages:<br/>"Output:\n{output}"
+                Note over O: Continue loop
+            end
+        end
+    end
+
+    rect rgb(248, 240, 255)
+        Note over O,V: Verification (if --verify)
+        O->>V: system: VERIFIER_PROMPT<br/>user: answer + first 5000 chars of context
+        V-->>O: "VERIFIED" or "ISSUES: ..."
+        Note over O: Append issues note<br/>if verification fails
+    end
+
+    O-->>User: RLMResult(answer, stats, history)
+```
+
+### Data Flow Between Roles
+
+Shows what data each role receives and produces, and how outputs flow to
+downstream consumers.
+
+```mermaid
+flowchart TD
+    Q[User Query + Context] --> O[RLM Orchestrator]
+
+    O -->|document sample + query| CE_PRE["Context Engineer<br/>(pre-loop)"]
+    CE_PRE -->|document brief| O
+
+    O -->|system prompt + user prompt<br/>+ sample + brief ❓| ROOT[Root LM]
+    ROOT -->|Python code| REPL[REPL Environment]
+    REPL -->|print output| ROOT
+
+    REPL -->|snippet + task| CE_PQ["Context Engineer<br/>(per-query)"]
+    CE_PQ -->|context note| SUB[Sub-RLM]
+
+    O -.->|document brief| SUB
+    REPL -->|snippet + task| SUB
+    SUB -->|plain text| REPL
+
+    ROOT -->|"FINAL(answer)"| O
+    O -->|answer + evidence| V[Verifier]
+    V -->|verdict| O
+    O -->|RLMResult| U[User]
+
+    style CE_PRE fill:#e8f4fd,stroke:#4a90d9
+    style CE_PQ fill:#fff3e0,stroke:#f5a623
+    style ROOT fill:#e8f5e9,stroke:#4caf50
+    style SUB fill:#e8f5e9,stroke:#81c784
+    style V fill:#f3e5f5,stroke:#ab47bc
+    style REPL fill:#fff9c4,stroke:#fbc02d
+```
+
+#### Legend
+
+| Arrow | Meaning |
+|-------|---------|
+| **brief ❓** | Only if `--share-brief-with-root` |
+| Solid line | Always active when the role is invoked |
+| Dashed line | Conditional on `context_engineer_mode` |
+
+#### What each role sees
+
+| Role | System Prompt | User Message Contains | Produces |
+|------|--------------|----------------------|----------|
+| **Context Engineer (pre-loop)** | Document analysis specialist prompt | Query + 4 × 600-char document excerpts | Document brief (200–500 words) |
+| **Context Engineer (per-query)** | Context note specialist prompt | Task + snippet position + ~500 chars before/after | Context note (50–150 words) |
+| **Root LM** | Full strategy prompt (Inspect→Search→Chunk→Synthesize) | Query + document sample [+ brief] | Python code in ` ```python ` blocks |
+| **Sub-RLM** | Minimal text-analysis prompt | [Brief] + [context note] + snippet + task | Plain text (summary, extraction, etc.) |
+| **Verifier** | Verification prompt | Proposed answer + first 5000 chars of context | "VERIFIED" or "ISSUES: ..." |
+
 ---
 
 ## Paper's Algorithm
