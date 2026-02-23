@@ -221,6 +221,82 @@ def get_verifier_system_prompt() -> str:
     return VERIFIER_SYSTEM_PROMPT
 
 
+CONTEXT_ENGINEER_PRE_LOOP_PROMPT = """You are a document analysis specialist. \
+You receive a sample from a document and a user query. Your job is to produce a concise \
+"document brief" that will help other AI assistants understand the document when they \
+receive small snippets from it.
+
+Analyze the sample and produce a brief (200-500 words) covering:
+
+1. **Document type and format**: What kind of document is this? (e.g., legal contract, \
+research paper, technical spec, news article, transcript, code, etc.) What format is it in? \
+(plain text, Markdown, JSON, structured sections, etc.)
+
+2. **Key terminology and acronyms**: List important domain-specific terms, abbreviations, \
+or acronyms that appear. Define them briefly if their meaning is clear from context.
+
+3. **Document structure**: How is the document organized? (chapters, sections, numbered items, \
+Q&A format, chronological, etc.) Note any recurring patterns like headers, labels, or delimiters.
+
+4. **Important entities**: List key people, organizations, products, locations, or concepts \
+that appear central to the document.
+
+5. **Writing conventions**: Note the tone (formal/informal), perspective (first/third person), \
+and any notable stylistic patterns.
+
+Rules:
+- Base your analysis ONLY on the sample provided — do not speculate about unseen content.
+- Be concise but specific. Prefer concrete examples from the text over generic descriptions.
+- Return plain text only — no code blocks, no markdown headers.
+- Start directly with the analysis — no preamble like "Here is the document brief:".
+"""
+
+
+CONTEXT_ENGINEER_PER_QUERY_PROMPT = """You are a context specialist. You receive a text snippet \
+that an AI assistant is about to analyze, along with surrounding text from the same document \
+and the task description.
+
+Produce a short context note (50-150 words) to help the assistant understand the snippet better:
+
+1. **Position**: Where does this snippet sit within the document? (e.g., "This is from the \
+middle of section 3, which discusses methodology.")
+
+2. **Terminology references**: Are there terms, acronyms, or references in this snippet that \
+were defined or introduced elsewhere in the surrounding text? Briefly clarify them.
+
+3. **Relevant background**: What important context from the surrounding text would help \
+understand this snippet? (e.g., preceding arguments, data being referenced, ongoing discussion)
+
+Rules:
+- Be concise — the assistant needs context, not a summary of the snippet itself.
+- Focus only on information that helps interpret the snippet, not on repeating its content.
+- Return plain text only — no code blocks.
+- Start directly with the context note — no preamble.
+"""
+
+
+def get_context_engineer_pre_loop_prompt() -> str:
+    """Get the system prompt for the context-engineer pre-loop analysis.
+
+    Returns
+    -------
+    str
+        System prompt for the context-engineer pre-loop role.
+    """
+    return CONTEXT_ENGINEER_PRE_LOOP_PROMPT
+
+
+def get_context_engineer_per_query_prompt() -> str:
+    """Get the system prompt for the context-engineer per-query enhancement.
+
+    Returns
+    -------
+    str
+        System prompt for the context-engineer per-query role.
+    """
+    return CONTEXT_ENGINEER_PER_QUERY_PROMPT
+
+
 def get_user_prompt(query: str, context_sample: str = "") -> str:
     """Format the user's query as a prompt.
 

@@ -18,23 +18,39 @@ User Query + Context (file/dir/string)
    SHOW_VARS, pre-imported modules
         │
         ▼
-5. Send to LLM: system prompt (full/compact) + user query [+ context sample]
+5. [Context Engineer — pre_loop] (if --context-engineer-mode includes pre_loop)
+   Analyze document sample → produce "document brief" (200-500 words)
+   Optionally share brief with root LM (--share-brief-with-root)
+        │
+        ▼
+6. Send to LLM: system prompt (full/compact) + user query [+ context sample]
+   [+ document brief if share_brief_with_root]
         │
         ▼
 ┌─── RLM Loop (max_iterations, timeout, token budget) ────────┐
 │                                           │
-│  6. Check timeout / token budget guards   │
-│  7. LLM responds with markdown            │
-│  8. Extract ```python blocks (regex)      │
-│  9. If no code blocks:                    │
+│  7. Check timeout / token budget guards   │
+│  8. LLM responds with markdown            │
+│  9. Extract ```python blocks (regex)      │
+│ 10. If no code blocks:                    │
 │       - Check for "FINAL" in text → done  │
 │       - Else prompt LLM to write code     │
-│ 10. Execute each code block sequentially  │
+│ 11. Execute each code block sequentially  │
 │       in persistent REPL namespace        │
-│ 11. If FINAL() called → done              │
-│ 12. Feed captured print() output back     │
+│       ├── llm_query(snippet, task):       │
+│       │   a. [Context Engineer — per_query]│
+│       │      (if mode includes per_query) │
+│       │      Produce context note from    │
+│       │      surrounding text             │
+│       │   b. Sub-RLM receives:            │
+│       │      [document brief] +           │
+│       │      [context note] +             │
+│       │      snippet + task               │
+│       │   c. Returns plain text           │
+│ 12. If FINAL() called → done              │
+│ 13. Feed captured print() output back     │
 │       as user message: "Output:\n..."     │
-│ 13. Continue loop                         │
+│ 14. Continue loop                         │
 │                                           │
 └─────────────────────────────────────────────────────────────┘
         │
@@ -100,25 +116,26 @@ Return final answer
 | **Native post-training** | RLM-Qwen3-8B (28.3% improvement over base) | Prompt-only, no fine-tuning | Paper has a training component we don't |
 | **Cost tracking** | Discussed (comparable median, high variance tail) | `RLMStats` tracks tokens, iterations, sub-RLM calls; `--max-token-budget` enforces limits | **Aligned** — cost enforcement now available |
 | **Verification strategy** | Some models perform redundant verification sub-calls | `--verify` flag enables explicit verification sub-call on the final answer | Paper observes this as emergent behavior; we formalize it as opt-in |
+| **Sub-RLM context** | Sub-RLM receives only snippet + task (no document context) | Context-engineer role can provide document brief and per-query context notes to sub-RLM calls | Extension beyond the paper; opt-in via `--context-engineer-mode` |
 
 ---
 
 ## LLM Roles
 
-The RLM pattern uses two distinct LLM tiers with different responsibilities:
+The RLM pattern uses up to four distinct LLM roles with different responsibilities:
 
 ### Role Comparison
 
-| Aspect | Root LM | Sub-RLM | Verifier |
-|--------|---------------------------|-----------------|----------|
-| Depth | 0 | 1+ (up to `max_depth`) | 0 (post-processing) |
-| System prompt | Full strategy prompt (~120 lines) or compact (~25 lines) | Minimal task-focused prompt | Verification-focused prompt |
-| Conversation | Multi-turn (code → output → code → ... → FINAL) | Single-turn (one prompt, one response) | Single-turn |
-| Produces | Python code in ` ```python ` blocks | Plain text (summary, extraction, analysis) | VERIFIED or ISSUES: ... |
-| Has access to | `CONTEXT`, `FILES`, `llm_query()`, `FINAL()`, `SHOW_VARS()`, pre-imported modules | Only the snippet passed by root | Proposed answer + evidence |
-| Model | `--model` | `--sub-rlm-model` (defaults to `--model`) | Config only (defaults to sub-RLM model) |
-| Backend | `--backend` or config | Config only (defaults to root's) | Config only (defaults to root's) |
-| Custom prompt | Via `--config` `roles.root.system_prompt` | Via `--config` `roles.sub_rlm.system_prompt` | Via `--config` `roles.verifier.system_prompt` |
+| Aspect | Root LM | Sub-RLM | Verifier | Context Engineer |
+|--------|---------------------------|-----------------|----------|------------------|
+| Depth | 0 | 1+ (up to `max_depth`) | 0 (post-processing) | 0 (pre-processing / per-query) |
+| System prompt | Full strategy prompt (~120 lines) or compact (~25 lines) | Minimal task-focused prompt | Verification-focused prompt | Pre-loop: document analysis prompt; Per-query: context note prompt |
+| Conversation | Multi-turn (code → output → code → ... → FINAL) | Single-turn (one prompt, one response) | Single-turn | Single-turn (per invocation) |
+| Produces | Python code in ` ```python ` blocks | Plain text (summary, extraction, analysis) | VERIFIED or ISSUES: ... | Document brief (pre-loop) or context note (per-query) |
+| Has access to | `CONTEXT`, `FILES`, `llm_query()`, `FINAL()`, `SHOW_VARS()`, pre-imported modules | Only the snippet passed by root + optional brief/note | Proposed answer + evidence | Document sample (pre-loop) or snippet + surrounding text (per-query) |
+| Model | `--model` | `--sub-rlm-model` (defaults to `--model`) | Config only (defaults to sub-RLM model) | Config only (defaults to sub-RLM model) |
+| Backend | `--backend` or config | Config only (defaults to root's) | Config only (defaults to root's) | Config only (defaults to root's) |
+| Custom prompt | Via `--config` `roles.root.system_prompt` | Via `--config` `roles.sub_rlm.system_prompt` | Via `--config` `roles.verifier.system_prompt` | Via `--config` `roles.context_engineer.system_prompt` (pre-loop) and `per_query_prompt` |
 
 ### Root LM Responsibilities
 
@@ -166,6 +183,36 @@ Our prompts map these emergent strategies to a prescriptive four-phase model:
 The paper observes that models discover these strategies naturally with minimal prompting. Our
 prompts are more prescriptive (explicit chunk size guidance, specific function examples), which
 improves consistency but may constrain creative exploration.
+
+### Context Engineer (Extension Beyond Paper)
+
+The paper's sub-RLM calls operate in complete isolation — each `llm_query(snippet, task)` gives
+the sub-RLM only the snippet and task, with no knowledge of the document's type, structure,
+terminology, or where the snippet sits. This limits sub-RLM accuracy for domain-specific
+documents (legal contracts, research papers, technical specs).
+
+Our context-engineer role addresses this limitation with two configurable intervention points:
+
+| Mode | When | LLM Calls | What it does |
+|------|------|-----------|-------------|
+| `off` | Never (default) | 0 | Current behavior, matches paper |
+| `pre_loop` | Before main loop | 1 | Produces document brief from sample |
+| `per_query` | Before each `llm_query()` | N | Adds surrounding context + position metadata |
+| `both` | Both points | 1 + N | Brief + per-query enhancement |
+
+**Pre-loop analysis** (`_run_pre_loop_analysis`): Feeds a document sample to the CE backend
+and receives a document brief (200-500 words) covering document type, key terminology,
+structure, important entities, and writing conventions. The brief is then prepended to every
+sub-RLM call, and optionally shared with the root LM (`--share-brief-with-root`).
+
+**Per-query enhancement** (`_enhance_per_query`): Before each `llm_query()`, locates the
+snippet within the full CONTEXT, extracts ~500 chars of surrounding text, and calls the CE
+backend to produce a context note (50-150 words) about position, terminology references, and
+relevant background. The note is prepended to the sub-RLM prompt.
+
+The context-engineer defaults cascade from the sub-RLM role (both are "helper" roles), so
+configuring `sub_rlm` in the YAML config automatically applies to `context_engineer` unless
+overridden.
 
 ### Verification (Emergent Behavior)
 
@@ -226,3 +273,5 @@ Actionable items identified by this comparison:
 - **Evaluate prompt prescriptiveness** — test whether our detailed prompts help or constrain the LLM compared to the paper's minimal approach
 - **Native post-training** — the paper fine-tuned RLM-Qwen3-8B (28.3% improvement over base); we rely on prompt-only guidance
 - **True async execution** — replace sync-delegating `acompletion` stubs with genuine async REPL execution
+- **Context-engineer token budget** — CE calls currently draw from the same `max_token_budget`; per-query mode (N calls) can exhaust budget faster; consider separate budgets or adaptive call limits
+- **Context-engineer snippet location** — `_enhance_per_query()` uses `context_str.find(snippet[:200])` which can fail if the root LM transforms the snippet; more robust matching (fuzzy, n-gram) could improve hit rate

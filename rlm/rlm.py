@@ -15,6 +15,8 @@ import click
 from .backends import LLMBackend
 from .context import CompositeContext
 from .prompts import (
+    get_context_engineer_per_query_prompt,
+    get_context_engineer_pre_loop_prompt,
     get_sub_rlm_system_prompt,
     get_system_prompt,
     get_user_prompt,
@@ -32,6 +34,7 @@ class RLMStats:
     iterations: int = 0
     llm_calls: int = 0
     sub_rlm_calls: int = 0
+    context_engineer_calls: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
 
@@ -74,6 +77,12 @@ class RLM:
         root_system_prompt: str | None = None,
         sub_rlm_system_prompt: str | None = None,
         verifier_system_prompt: str | None = None,
+        context_engineer_mode: str = "off",
+        share_brief_with_root: bool = False,
+        context_engineer_backend: LLMBackend | None = None,
+        context_engineer_model: str | None = None,
+        context_engineer_pre_loop_prompt: str | None = None,
+        context_engineer_per_query_prompt: str | None = None,
     ) -> None:
         """Initialize RLM orchestrator.
 
@@ -115,6 +124,18 @@ class RLM:
             Custom system prompt for the sub-RLM role.
         verifier_system_prompt : str | None
             Custom system prompt for the verifier role.
+        context_engineer_mode : str
+            Context-engineer mode: "off", "pre_loop", "per_query", or "both".
+        share_brief_with_root : bool
+            Whether to include the document brief in the root LM's prompt.
+        context_engineer_backend : LLMBackend | None
+            Backend for context-engineer calls (defaults to backend).
+        context_engineer_model : str | None
+            Model for context-engineer calls (defaults to sub_rlm_model).
+        context_engineer_pre_loop_prompt : str | None
+            Custom system prompt for pre-loop analysis.
+        context_engineer_per_query_prompt : str | None
+            Custom system prompt for per-query enhancement.
         """
         self.backend = backend
         self.model = model
@@ -134,6 +155,12 @@ class RLM:
         self.root_system_prompt = root_system_prompt
         self.sub_rlm_system_prompt = sub_rlm_system_prompt
         self.verifier_system_prompt = verifier_system_prompt
+        self.context_engineer_mode = context_engineer_mode
+        self.share_brief_with_root = share_brief_with_root
+        self.context_engineer_backend = context_engineer_backend or backend
+        self.context_engineer_model = context_engineer_model or self.sub_rlm_model
+        self.context_engineer_pre_loop_prompt = context_engineer_pre_loop_prompt
+        self.context_engineer_per_query_prompt = context_engineer_per_query_prompt
 
     def _log(self, message: str) -> None:
         """Log a message if verbose is enabled.
@@ -186,7 +213,9 @@ class RLM:
         Callable[[str, str], str]
             Function that executes LLM queries with (snippet, task) args.
         """
-        stats = None  # Will be set per-completion call
+        stats: RLMStats | None = None  # Will be set per-completion call
+        context_str: str | None = None  # Will be set per-completion call
+        document_brief: str | None = None  # Will be set per-completion call
 
         def llm_query(snippet: str, task: str) -> str:
             """Execute a recursive LLM query.
@@ -210,7 +239,21 @@ class RLM:
                 stats.sub_rlm_calls += 1
                 stats.llm_calls += 1
 
-            prompt = f"Context:\n{snippet}\n\nTask: {task}"
+            # Build the user prompt with optional CE enhancements
+            parts: list[str] = []
+
+            # Add document brief if available
+            if document_brief:
+                parts.append(f"## Document Brief\n{document_brief}")
+
+            # Run per-query enhancement if enabled
+            if self._ce_enabled_per_query() and stats is not None and context_str is not None:
+                context_note = self._enhance_per_query(snippet, task, context_str, stats)
+                parts.append(f"## Context Note\n{context_note}")
+
+            parts.append(f"Context:\n{snippet}\n\nTask: {task}")
+            prompt = "\n\n".join(parts)
+
             self._log(f"Sub-RLM call (depth={current_depth + 1}): {prompt[:100]}...")
 
             sub_prompt = self.sub_rlm_system_prompt or get_sub_rlm_system_prompt()
@@ -231,14 +274,25 @@ class RLM:
 
             return result.text
 
-        # Allow the caller to bind stats after creation.
+        # Allow the caller to bind stats, context_str, and document_brief
+        # after creation.
         llm_query._stats_ref = None  # type: ignore[attr-defined]
 
         def bind_stats(s: RLMStats) -> None:
             nonlocal stats
             stats = s
 
+        def bind_context_str(ctx: str) -> None:
+            nonlocal context_str
+            context_str = ctx
+
+        def bind_document_brief(brief: str | None) -> None:
+            nonlocal document_brief
+            document_brief = brief
+
         llm_query.bind_stats = bind_stats  # type: ignore[attr-defined]
+        llm_query.bind_context_str = bind_context_str  # type: ignore[attr-defined]
+        llm_query.bind_document_brief = bind_document_brief  # type: ignore[attr-defined]
 
         return llm_query
 
@@ -294,6 +348,136 @@ class RLM:
         parts.append(f"\nEnd (offset {tail_start:,}):\n{tail}")
 
         return "\n".join(parts)
+
+    def _ce_enabled_pre_loop(self) -> bool:
+        """Return True if context-engineer pre-loop analysis is enabled."""
+        return self.context_engineer_mode in ("pre_loop", "both")
+
+    def _ce_enabled_per_query(self) -> bool:
+        """Return True if context-engineer per-query enhancement is enabled."""
+        return self.context_engineer_mode in ("per_query", "both")
+
+    def _run_pre_loop_analysis(
+        self,
+        repl: REPLEnv,
+        query: str,
+        stats: RLMStats,
+    ) -> str:
+        """Run context-engineer pre-loop analysis to produce a document brief.
+
+        Parameters
+        ----------
+        repl : REPLEnv
+            The REPL environment (for building context sample).
+        query : str
+            The user's query (provides task context).
+        stats : RLMStats
+            Statistics object to update.
+
+        Returns
+        -------
+        str
+            Document brief (200-500 words).
+        """
+        sample = self._build_context_sample(repl, sample_size=600, num_samples=4)
+        prompt = f"User query: {query}\n\n## Document Sample\n{sample}"
+
+        ce_prompt = self.context_engineer_pre_loop_prompt or get_context_engineer_pre_loop_prompt()
+        messages = [
+            {"role": "system", "content": ce_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        stats.llm_calls += 1
+        stats.context_engineer_calls += 1
+        self._log("Context Engineer: running pre-loop analysis")
+
+        result = self.context_engineer_backend.completion(
+            messages, self.context_engineer_model, max_tokens=self.max_tokens
+        )
+        stats.total_input_tokens += result.usage.input_tokens
+        stats.total_output_tokens += result.usage.output_tokens
+
+        brief = result.text.strip()
+        self._log(f"Context Engineer: document brief ({len(brief)} chars)")
+        if self.verbose:
+            click.echo(click.style("Document Brief:", fg="cyan"))
+            click.echo(brief[:500] + ("..." if len(brief) > 500 else ""))
+
+        return brief
+
+    def _enhance_per_query(
+        self,
+        snippet: str,
+        task: str,
+        context_str: str,
+        stats: RLMStats,
+    ) -> str:
+        """Run context-engineer per-query enhancement to produce a context note.
+
+        Parameters
+        ----------
+        snippet : str
+            The snippet being passed to the sub-RLM.
+        task : str
+            The task description for the sub-RLM.
+        context_str : str
+            The full CONTEXT string for locating the snippet.
+        stats : RLMStats
+            Statistics object to update.
+
+        Returns
+        -------
+        str
+            Context note (50-150 words).
+        """
+        # Locate snippet in context using first 200 chars as search key
+        search_key = snippet[:200]
+        pos = context_str.find(search_key)
+
+        surround_size = 500
+        if pos >= 0:
+            before_start = max(0, pos - surround_size)
+            after_end = min(len(context_str), pos + len(snippet) + surround_size)
+            before_text = context_str[before_start:pos]
+            after_text = context_str[pos + len(snippet) : after_end]
+            position_info = f"Snippet found at character offset {pos:,} of {len(context_str):,}"
+        else:
+            # Fallback: use head and tail as surrounding context
+            before_text = context_str[:surround_size]
+            after_text = context_str[-surround_size:]
+            position_info = "Snippet location unknown (using document head/tail as context)"
+
+        prompt = (
+            f"Task for the assistant: {task}\n\n"
+            f"Position: {position_info}\n\n"
+            f"## Text Before Snippet\n{before_text}\n\n"
+            f"## Snippet\n{snippet[:500]}{'...' if len(snippet) > 500 else ''}\n\n"
+            f"## Text After Snippet\n{after_text}"
+        )
+
+        ce_prompt = (
+            self.context_engineer_per_query_prompt or get_context_engineer_per_query_prompt()
+        )
+        messages = [
+            {"role": "system", "content": ce_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        stats.llm_calls += 1
+        stats.context_engineer_calls += 1
+        self._log("Context Engineer: running per-query enhancement")
+
+        result = self.context_engineer_backend.completion(
+            messages, self.context_engineer_model, max_tokens=self.max_tokens
+        )
+        stats.total_input_tokens += result.usage.input_tokens
+        stats.total_output_tokens += result.usage.output_tokens
+
+        note = result.text.strip()
+        self._log(f"Context Engineer: context note ({len(note)} chars)")
+
+        return note
 
     def _log_context_size(self, context: str | Path | list[Path] | CompositeContext) -> None:
         """Log context size information.
@@ -523,6 +707,55 @@ class RLM:
         )
         return False
 
+    def _setup_completion(
+        self,
+        context: str | Path | list[Path] | CompositeContext,
+        query: str,
+        stats: RLMStats,
+    ) -> tuple[REPLEnv, list[dict[str, str]]]:
+        """Set up REPL, context-engineer, and initial messages for completion.
+
+        Returns
+        -------
+        tuple[REPLEnv, list[dict[str, str]]]
+            The REPL environment and the initial message list.
+        """
+        llm_query_fn = self._create_llm_query_fn(context)
+        llm_query_fn.bind_stats(stats)  # type: ignore[attr-defined]
+        repl = REPLEnv(context=context, llm_query_fn=llm_query_fn)
+
+        # Bind context string for per-query CE enhancement
+        llm_query_fn.bind_context_str(repl.context_str)  # type: ignore[attr-defined]
+
+        # Run context-engineer pre-loop analysis if enabled
+        brief: str | None = None
+        if self._ce_enabled_pre_loop():
+            brief = self._run_pre_loop_analysis(repl, query, stats)
+            llm_query_fn.bind_document_brief(brief)  # type: ignore[attr-defined]
+
+        # Build conversation with injected document sample
+        context_sample = self._build_context_sample(repl) if self.include_context_sample else ""
+        root_prompt = self.root_system_prompt or get_system_prompt(self.compact_prompt)
+        user_prompt = get_user_prompt(query, context_sample)
+
+        if brief and self.share_brief_with_root:
+            user_prompt = f"## Document Brief\n{brief}\n\n{user_prompt}"
+
+        messages = [
+            {"role": "system", "content": root_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        self._log(f"Starting RLM completion for query: {query}")
+        self._log_context_size(context)
+        self._log(f"Model: {self.model} | Sub-RLM model: {self.sub_rlm_model}")
+        self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
+        self._log(f"Compact prompt: {self.compact_prompt}")
+        self._log(f"Context engineer mode: {self.context_engineer_mode}")
+        self._log(f"System prompt length: {len(root_prompt):,} chars")
+
+        return repl, messages
+
     def completion(
         self, context: str | Path | list[Path] | CompositeContext, query: str
     ) -> RLMResult:
@@ -551,28 +784,7 @@ class RLM:
         self._last_stats = stats
         history: list[dict[str, Any]] = []
 
-        # Create REPL environment
-        llm_query_fn = self._create_llm_query_fn(context)
-        llm_query_fn.bind_stats(stats)  # type: ignore[attr-defined]
-        repl = REPLEnv(
-            context=context,
-            llm_query_fn=llm_query_fn,
-        )
-
-        # Build conversation with injected document sample
-        context_sample = self._build_context_sample(repl) if self.include_context_sample else ""
-        root_prompt = self.root_system_prompt or get_system_prompt(self.compact_prompt)
-        messages = [
-            {"role": "system", "content": root_prompt},
-            {"role": "user", "content": get_user_prompt(query, context_sample)},
-        ]
-
-        self._log(f"Starting RLM completion for query: {query}")
-        self._log_context_size(context)
-        self._log(f"Model: {self.model} | Sub-RLM model: {self.sub_rlm_model}")
-        self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
-        self._log(f"Compact prompt: {self.compact_prompt}")
-        self._log(f"System prompt length: {len(root_prompt):,} chars")
+        repl, messages = self._setup_completion(context, query, stats)
 
         start_time = time.monotonic()
 
@@ -694,6 +906,7 @@ class RLM:
                 "iterations": 0,
                 "llm_calls": 0,
                 "sub_rlm_calls": 0,
+                "context_engineer_calls": 0,
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
             }
@@ -701,6 +914,7 @@ class RLM:
             "iterations": self._last_stats.iterations,
             "llm_calls": self._last_stats.llm_calls,
             "sub_rlm_calls": self._last_stats.sub_rlm_calls,
+            "context_engineer_calls": self._last_stats.context_engineer_calls,
             "total_input_tokens": self._last_stats.total_input_tokens,
             "total_output_tokens": self._last_stats.total_output_tokens,
         }

@@ -425,6 +425,17 @@ def main() -> int:
         help="Run a verification sub-call on the final answer (experimental)",
     )
     parser.add_argument(
+        "--context-engineer-mode",
+        choices=["off", "pre_loop", "per_query", "both"],
+        default=None,
+        help="Context-engineer mode (default: off)",
+    )
+    parser.add_argument(
+        "--share-brief-with-root",
+        action="store_true",
+        help="Share the context-engineer document brief with the root LM",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -478,6 +489,7 @@ def _main_legacy(args: argparse.Namespace) -> int:
         return 1
 
     # Create RLM instance
+    ce_mode = args.context_engineer_mode or "off"
     rlm = RLM(
         backend=backend,
         model=model,
@@ -490,6 +502,8 @@ def _main_legacy(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         max_token_budget=args.max_token_budget,
         verify=args.verify,
+        context_engineer_mode=ce_mode,
+        share_brief_with_root=args.share_brief_with_root,
     )
 
     return _run_completion(rlm, context, args.query)
@@ -534,6 +548,10 @@ def _merge_settings(args: argparse.Namespace, cfg: SettingsConfig) -> dict[str, 
         "timeout": _first_optional(args.timeout, cfg.timeout),
         "max_token_budget": _first_optional(args.max_token_budget, cfg.max_token_budget),
         "verify": args.verify or (cfg.verify is True),
+        "context_engineer_mode": (args.context_engineer_mode or cfg.context_engineer_mode or "off"),
+        "share_brief_with_root": (
+            args.share_brief_with_root or (cfg.share_brief_with_root is True)
+        ),
     }
 
 
@@ -541,7 +559,8 @@ def _create_role_backends(
     root: ResolvedRoleConfig,
     sub_rlm: ResolvedRoleConfig,
     verifier: ResolvedRoleConfig,
-) -> tuple[LLMBackend, LLMBackend, LLMBackend]:
+    context_engineer: ResolvedRoleConfig | None = None,
+) -> tuple[LLMBackend, LLMBackend, LLMBackend, LLMBackend]:
     """Create per-role backends, sharing root backend when configs match."""
     root_backend = _create_backend_from_resolved(root, "root")
     sub_rlm_backend = (
@@ -554,7 +573,13 @@ def _create_role_backends(
         if _roles_differ(verifier, root)
         else root_backend
     )
-    return root_backend, sub_rlm_backend, verifier_backend
+    ce_resolved = context_engineer or sub_rlm
+    ce_backend = (
+        _create_backend_from_resolved(ce_resolved, "context_engineer")
+        if _roles_differ(ce_resolved, root)
+        else root_backend
+    )
+    return root_backend, sub_rlm_backend, verifier_backend, ce_backend
 
 
 def _main_with_config(args: argparse.Namespace) -> int:
@@ -570,10 +595,12 @@ def _main_with_config(args: argparse.Namespace) -> int:
     root_resolved = resolve_role("root", config)
     sub_rlm_resolved = resolve_role("sub_rlm", config)
     verifier_resolved = resolve_role("verifier", config)
+    ce_resolved = resolve_role("context_engineer", config)
 
     _apply_cli_overrides(args, root_resolved, sub_rlm_resolved)
     _cascade_role_defaults(root_resolved, sub_rlm_resolved)
     _cascade_role_defaults(sub_rlm_resolved, verifier_resolved)
+    _cascade_role_defaults(sub_rlm_resolved, ce_resolved)
 
     # Apply fallback backend
     if root_resolved.backend is None:
@@ -603,8 +630,8 @@ def _main_with_config(args: argparse.Namespace) -> int:
 
     # Create per-role backends
     try:
-        root_backend, sub_rlm_backend, verifier_backend = _create_role_backends(
-            root_resolved, sub_rlm_resolved, verifier_resolved
+        root_backend, sub_rlm_backend, verifier_backend, ce_backend = _create_role_backends(
+            root_resolved, sub_rlm_resolved, verifier_resolved, ce_resolved
         )
     except (ValueError, ImportError) as e:
         click.echo(f"Error: {e}", err=True)
@@ -630,6 +657,12 @@ def _main_with_config(args: argparse.Namespace) -> int:
         root_system_prompt=root_resolved.system_prompt,
         sub_rlm_system_prompt=sub_rlm_resolved.system_prompt,
         verifier_system_prompt=verifier_resolved.system_prompt,
+        context_engineer_mode=settings["context_engineer_mode"],  # type: ignore[arg-type]
+        share_brief_with_root=settings["share_brief_with_root"],  # type: ignore[arg-type]
+        context_engineer_backend=ce_backend,
+        context_engineer_model=ce_resolved.model,
+        context_engineer_pre_loop_prompt=ce_resolved.system_prompt,
+        context_engineer_per_query_prompt=ce_resolved.per_query_prompt,
     )
 
     return _run_completion(rlm, context, args.query)

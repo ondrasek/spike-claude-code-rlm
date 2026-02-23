@@ -27,10 +27,11 @@ class ConfigError(ValueError):
 # Dataclasses
 # =====================================================================
 
-_VALID_ROLE_NAMES = frozenset({"root", "sub_rlm", "verifier"})
+_VALID_ROLE_NAMES = frozenset({"root", "sub_rlm", "verifier", "context_engineer"})
 _VALID_BACKENDS = frozenset(
     {"anthropic", "openai", "openrouter", "huggingface", "ollama", "claude"}
 )
+_VALID_CE_MODES = frozenset({"off", "pre_loop", "per_query", "both"})
 
 
 @dataclass
@@ -49,7 +50,7 @@ class DefaultsConfig:
 
 @dataclass
 class RoleConfig:
-    """Per-role configuration (root, sub_rlm, verifier)."""
+    """Per-role configuration (root, sub_rlm, verifier, context_engineer)."""
 
     backend: str | None = None
     model: str | None = None
@@ -57,6 +58,8 @@ class RoleConfig:
     api_key_env: str | None = None
     system_prompt: str | None = None
     system_prompt_file: str | None = None
+    per_query_prompt: str | None = None
+    per_query_prompt_file: str | None = None
 
 
 @dataclass
@@ -71,6 +74,8 @@ class SettingsConfig:
     timeout: int | None = None
     max_token_budget: int | None = None
     verify: bool | None = None
+    context_engineer_mode: str | None = None
+    share_brief_with_root: bool | None = None
 
 
 @dataclass
@@ -92,6 +97,7 @@ class ResolvedRoleConfig:
     base_url: str | None = None
     api_key: str | None = None
     system_prompt: str | None = None
+    per_query_prompt: str | None = None
 
 
 # =====================================================================
@@ -161,6 +167,8 @@ def _parse_raw(raw: dict[str, Any], config_dir: Path) -> RLMConfig:
                 api_key_env=role_dict.get("api_key_env"),
                 system_prompt=role_dict.get("system_prompt"),
                 system_prompt_file=role_dict.get("system_prompt_file"),
+                per_query_prompt=role_dict.get("per_query_prompt"),
+                per_query_prompt_file=role_dict.get("per_query_prompt_file"),
             )
 
     settings = SettingsConfig()
@@ -175,9 +183,29 @@ def _parse_raw(raw: dict[str, Any], config_dir: Path) -> RLMConfig:
             timeout=s.get("timeout"),
             max_token_budget=s.get("max_token_budget"),
             verify=s.get("verify"),
+            context_engineer_mode=s.get("context_engineer_mode"),
+            share_brief_with_root=s.get("share_brief_with_root"),
         )
 
     return RLMConfig(defaults=defaults, roles=roles, settings=settings, config_dir=config_dir)
+
+
+def _validate_prompt_pair(
+    role_name: str,
+    inline: str | None,
+    file_field: str | None,
+    field_name: str,
+    config_dir: Path,
+) -> None:
+    """Validate that only one of inline/file prompt is set, and file exists."""
+    if inline and file_field:
+        raise ConfigError(
+            f"Role '{role_name}' specifies both {field_name} and {field_name}_file. Use only one."
+        )
+    if file_field:
+        prompt_path = config_dir / file_field
+        if not prompt_path.exists():
+            raise ConfigError(f"Role '{role_name}' {field_name}_file not found: {prompt_path}")
 
 
 def _validate_config(config: RLMConfig) -> None:
@@ -196,17 +224,29 @@ def _validate_config(config: RLMConfig) -> None:
                 f"Unknown backend '{backend}' in {label}. Valid backends: {sorted(_VALID_BACKENDS)}"
             )
 
+    # Check context_engineer_mode
+    ce_mode = config.settings.context_engineer_mode
+    if ce_mode is not None and ce_mode not in _VALID_CE_MODES:
+        raise ConfigError(
+            f"Unknown context_engineer_mode '{ce_mode}'. Valid modes: {sorted(_VALID_CE_MODES)}"
+        )
+
     # Check prompt constraints per role
     for role_name, role in config.roles.items():
-        if role.system_prompt and role.system_prompt_file:
-            raise ConfigError(
-                f"Role '{role_name}' specifies both system_prompt and system_prompt_file. "
-                "Use only one."
-            )
-        if role.system_prompt_file:
-            prompt_path = config.config_dir / role.system_prompt_file
-            if not prompt_path.exists():
-                raise ConfigError(f"Role '{role_name}' system_prompt_file not found: {prompt_path}")
+        _validate_prompt_pair(
+            role_name,
+            role.system_prompt,
+            role.system_prompt_file,
+            "system_prompt",
+            config.config_dir,
+        )
+        _validate_prompt_pair(
+            role_name,
+            role.per_query_prompt,
+            role.per_query_prompt_file,
+            "per_query_prompt",
+            config.config_dir,
+        )
 
 
 def _all_backends(config: RLMConfig) -> list[tuple[str, str]]:
@@ -261,10 +301,19 @@ def resolve_role(role_name: str, config: RLMConfig) -> ResolvedRoleConfig:
         prompt_path = config.config_dir / role.system_prompt_file
         system_prompt = prompt_path.read_text(encoding="utf-8")
 
+    # Resolve per-query prompt (context_engineer role only, but harmless on others)
+    per_query_prompt: str | None = None
+    if role.per_query_prompt:
+        per_query_prompt = role.per_query_prompt
+    elif role.per_query_prompt_file:
+        prompt_path = config.config_dir / role.per_query_prompt_file
+        per_query_prompt = prompt_path.read_text(encoding="utf-8")
+
     return ResolvedRoleConfig(
         backend=backend,
         model=model,
         base_url=base_url,
         api_key=api_key,
         system_prompt=system_prompt,
+        per_query_prompt=per_query_prompt,
     )
