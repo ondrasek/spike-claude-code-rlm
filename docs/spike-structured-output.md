@@ -119,6 +119,21 @@ Supported since **v0.5** (December 2024). Uses GBNF grammar-based constrained de
 - Support is provider- and model-specific (routed through Cerebras, Fireworks, etc.)
 - OpenAI SDK `client.beta.chat.completions.parse()` confirmed working
 
+### Claude CLI
+
+The `claude -p` (print mode) CLI supports structured output via the `--json-schema` flag:
+
+```bash
+claude -p --json-schema '{"type":"object","properties":{"reasoning":{"type":"string"},"code":{"type":["string","null"]},"is_final":{"type":"boolean"},"final_answer":{"type":["string","null"]}},"required":["reasoning","code","is_final","final_answer"],"additionalProperties":false}' "Your prompt here"
+```
+
+- **`--json-schema <schema>`**: Accepts a JSON Schema string; validates/constrains the output
+- Works with `--output-format json` (which `ClaudeCLIBackend` already uses)
+- No API key needed — uses the existing Claude Code subscription
+- The schema is passed as a CLI argument, so `ClaudeCLIBackend._run_claude()` just needs to append `["--json-schema", schema_json]` to the command
+
+This means `ClaudeCLIBackend` **can support structured output** — it is not limited to regex fallback.
+
 ---
 
 ## 2. Proposed `StructuredResponse` Dataclass
@@ -187,7 +202,7 @@ Rationale:
 - Embedding the schema in the prompt and parsing with `json.loads()` + manual validation
 
 **Fall back to regex extraction (current behavior) when:**
-- Provider doesn't support either JSON mode (ClaudeCLI backend, CallbackBackend)
+- Provider doesn't support either JSON mode (CallbackBackend)
 - User explicitly disables structured output
 
 **Implementation priority:**
@@ -214,6 +229,8 @@ json_schema (strict) → json_object + prompt → regex (current)
 | **OpenRouter** | Response Healing plugin auto-fixes malformed JSON | May mask underlying issues; only for non-streaming |
 | **HuggingFace** | `json_object` mode returns HTTP 422 on some providers | Skip `json_object` fallback; go straight to regex |
 | **HuggingFace** | Support is provider-specific, not model-specific | Cannot guarantee structured output for all HF models |
+| **Claude CLI** | `--json-schema` flag on `claude -p` | Straightforward — append CLI args in `_run_claude()` |
+| **Claude CLI** | Output is wrapped in `--output-format json` envelope | Parse `data["result"]` then `json.loads()` for structured fields |
 
 ---
 
@@ -229,7 +246,7 @@ json_schema (strict) → json_object + prompt → regex (current)
 | `RLM._extract_code_blocks()` | Regex: `` ```python\n(.*?)``` `` | Parse `StructuredResponse.code` field; regex as fallback | #14 |
 | `RLM.completion()` loop | Checks `FINAL()` + `"FINAL" in response` | Check `StructuredResponse.is_final`; keep old checks as fallback | #14 |
 | System prompts | Instruct markdown code fences | Instruct JSON fields; dual prompts for structured/unstructured | #15 |
-| `ClaudeCLIBackend` | Shells out to `claude -p` | No structured output support — always use regex fallback | N/A |
+| `ClaudeCLIBackend` | Shells out to `claude -p` | Pass `--json-schema` flag; parse JSON from output | #12 |
 | `CallbackBackend` | Test-only; returns plain text | No structured output support — always use regex fallback | N/A |
 
 ### Suggested ABC extension
