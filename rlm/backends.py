@@ -29,11 +29,35 @@ class TokenUsage:
 
 
 @dataclass
+class StructuredResponse:
+    """Parsed structured output from an LLM backend."""
+
+    reasoning: str
+    code: str | None = None
+    is_final: bool = False
+    final_answer: str | None = None
+
+
+STRUCTURED_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "code": {"type": ["string", "null"]},
+        "is_final": {"type": "boolean"},
+        "final_answer": {"type": ["string", "null"]},
+    },
+    "required": ["reasoning", "code", "is_final", "final_answer"],
+    "additionalProperties": False,
+}
+
+
+@dataclass
 class CompletionResult:
     """Result from a backend completion call, including token usage."""
 
     text: str
     usage: TokenUsage
+    structured: StructuredResponse | None = None
 
 
 class LLMBackend(ABC):
@@ -46,6 +70,11 @@ class LLMBackend(ABC):
     forwarding to the API.  Backends whose APIs accept system messages inline
     (e.g. OpenAI-compatible) can pass the list as-is.
     """
+
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whether this backend supports structured output responses."""
+        return False
 
     @abstractmethod
     def completion(
