@@ -26,11 +26,13 @@ Example:
 """
 
 from .backends import (
+    STRUCTURED_RESPONSE_SCHEMA,
     AnthropicBackend,
     ClaudeCLIBackend,
     CompletionResult,
     LLMBackend,
     OpenAICompatibleBackend,
+    StructuredResponse,
     TokenUsage,
 )
 from .config import (
@@ -57,6 +59,8 @@ __all__ = [
     "OpenAICompatibleBackend",
     "ClaudeCLIBackend",
     "CompletionResult",
+    "StructuredResponse",
+    "STRUCTURED_RESPONSE_SCHEMA",
     "TokenUsage",
     "CompositeContext",
     "LazyContext",
