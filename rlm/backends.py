@@ -76,6 +76,32 @@ class LLMBackend(ABC):
         """Whether this backend supports structured output responses."""
         return False
 
+    def structured_completion(
+        self, messages: list[dict[str, str]], model: str, **kwargs: Any
+    ) -> CompletionResult:
+        """Generate a structured JSON completion.
+
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            List of message dicts with 'role' and 'content' keys.
+        model : str
+            Model identifier.
+        **kwargs
+            Additional provider-specific parameters.
+
+        Returns
+        -------
+        CompletionResult
+            Result with ``structured`` field populated on success.
+
+        Raises
+        ------
+        NotImplementedError
+            If the backend has not implemented structured output.
+        """
+        raise NotImplementedError("Backend does not support structured output")
+
     @abstractmethod
     def completion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
@@ -257,6 +283,11 @@ class AnthropicBackend(LLMBackend):
 class OpenAICompatibleBackend(LLMBackend):
     """Backend for OpenAI-compatible APIs (Ollama, vLLM, LM Studio, etc.)."""
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """OpenAI-compatible APIs support JSON mode."""
+        return True
+
     def __init__(
         self,
         base_url: str = "http://localhost:11434/v1",
@@ -290,6 +321,110 @@ class OpenAICompatibleBackend(LLMBackend):
             )
         return self._async_client
 
+    @staticmethod
+    def _parse_structured_response(raw: str) -> StructuredResponse | None:
+        """Parse a JSON string into a ``StructuredResponse``.
+
+        Returns ``None`` when the JSON is malformed or missing required fields.
+        """
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.debug("Structured output: failed to parse JSON")
+            return None
+
+        if not isinstance(data, dict):
+            logger.debug("Structured output: response is not a JSON object")
+            return None
+
+        required = {"reasoning", "code", "is_final", "final_answer"}
+        if not required.issubset(data):
+            logger.debug("Structured output: missing required fields %s", required - data.keys())
+            return None
+
+        reasoning = data["reasoning"]
+        code = data["code"]
+        is_final = data["is_final"]
+        final_answer = data["final_answer"]
+
+        if not isinstance(reasoning, str):
+            logger.debug("Structured output: 'reasoning' must be a string")
+            return None
+        if code is not None and not isinstance(code, str):
+            logger.debug("Structured output: 'code' must be a string or null")
+            return None
+        if not isinstance(is_final, bool):
+            logger.debug("Structured output: 'is_final' must be a boolean")
+            return None
+        if final_answer is not None and not isinstance(final_answer, str):
+            logger.debug("Structured output: 'final_answer' must be a string or null")
+            return None
+
+        return StructuredResponse(
+            reasoning=reasoning,
+            code=code,
+            is_final=is_final,
+            final_answer=final_answer,
+        )
+
+    @staticmethod
+    def _build_result(
+        response: Any,
+        *,
+        structured: StructuredResponse | None = None,
+    ) -> CompletionResult:
+        """Extract text, token usage, and optional structured data from a raw API response."""
+        text = response.choices[0].message.content or ""
+        usage = TokenUsage()
+        if response.usage:
+            usage = TokenUsage(
+                input_tokens=response.usage.prompt_tokens or 0,
+                output_tokens=response.usage.completion_tokens or 0,
+            )
+        return CompletionResult(text=text, usage=usage, structured=structured)
+
+    def structured_completion(
+        self, messages: list[dict[str, str]], model: str, **kwargs: Any
+    ) -> CompletionResult:
+        """Generate a structured JSON completion using ``response_format``.
+
+        Sends the request with ``response_format={"type": "json_object"}`` and
+        parses the response into a :class:`StructuredResponse`.  If parsing
+        fails the result is returned with ``structured=None`` so the caller
+        can fall back to regex-based extraction.
+
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            List of message dicts.
+        model : str
+            Model identifier.
+        **kwargs
+            Additional parameters (``temperature``, ``max_tokens``, etc.).
+
+        Returns
+        -------
+        CompletionResult
+            Result with ``structured`` populated on success, ``None`` on
+            parse failure.
+        """
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        }
+
+        if "temperature" in kwargs:
+            params["temperature"] = kwargs["temperature"]
+
+        if "max_tokens" in kwargs:
+            params["max_tokens"] = kwargs["max_tokens"]
+
+        response = self.client.chat.completions.create(**params)
+        text = response.choices[0].message.content or ""
+        structured = self._parse_structured_response(text)
+        return self._build_result(response, structured=structured)
+
     def completion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
     ) -> CompletionResult:
@@ -321,14 +456,7 @@ class OpenAICompatibleBackend(LLMBackend):
             params["max_tokens"] = kwargs["max_tokens"]
 
         response = self.client.chat.completions.create(**params)
-        text = response.choices[0].message.content or ""
-        usage = TokenUsage()
-        if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens or 0,
-                output_tokens=response.usage.completion_tokens or 0,
-            )
-        return CompletionResult(text=text, usage=usage)
+        return self._build_result(response)
 
     async def acompletion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
@@ -363,14 +491,7 @@ class OpenAICompatibleBackend(LLMBackend):
             params["max_tokens"] = kwargs["max_tokens"]
 
         response = await async_client.chat.completions.create(**params)
-        text = response.choices[0].message.content or ""
-        usage = TokenUsage()
-        if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens or 0,
-                output_tokens=response.usage.completion_tokens or 0,
-            )
-        return CompletionResult(text=text, usage=usage)
+        return self._build_result(response)
 
 
 class CallbackBackend(LLMBackend):
