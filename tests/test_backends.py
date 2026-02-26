@@ -14,6 +14,7 @@ from rlm.backends import (
     ClaudeCLIBackend,
     CompletionResult,
     OpenAICompatibleBackend,
+    StructuredResponse,
     TokenUsage,
 )
 
@@ -506,3 +507,215 @@ class TestClaudeCLIBackendCompletion:
         cmd = mock_run.call_args.args[0]
         assert "--system-prompt" in cmd
         assert "You are helpful." in cmd
+
+
+# -----------------------------------------------------------------------
+# LLMBackend.structured_completion (ABC default)
+# -----------------------------------------------------------------------
+
+
+class TestLLMBackendStructuredCompletion:
+    def test_default_raises_not_implemented(self) -> None:
+        """ABC default structured_completion() raises NotImplementedError."""
+        backend = CallbackBackend(lambda msgs, model: "ok")
+        with pytest.raises(NotImplementedError, match="does not support structured output"):
+            backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+
+    def test_callback_backend_does_not_support_structured_output(self) -> None:
+        backend = CallbackBackend(lambda msgs, model: "ok")
+        assert backend.supports_structured_output is False
+
+    def test_anthropic_backend_does_not_support_structured_output(self) -> None:
+        with (
+            patch("rlm.backends.anthropic", create=True),
+            patch.object(AnthropicBackend, "__init__", lambda self, **kw: None),
+        ):
+            backend = AnthropicBackend.__new__(AnthropicBackend)
+            assert backend.supports_structured_output is False
+
+
+# -----------------------------------------------------------------------
+# OpenAICompatibleBackend.supports_structured_output
+# -----------------------------------------------------------------------
+
+
+class TestOpenAICompatibleSupportsStructured:
+    def test_returns_true(self) -> None:
+        with patch.object(OpenAICompatibleBackend, "__init__", lambda self, **kw: None):
+            backend = OpenAICompatibleBackend.__new__(OpenAICompatibleBackend)
+            assert backend.supports_structured_output is True
+
+
+# -----------------------------------------------------------------------
+# OpenAICompatibleBackend._parse_structured_response
+# -----------------------------------------------------------------------
+
+
+class TestParseStructuredResponse:
+    def test_valid_json(self) -> None:
+        raw = json.dumps(
+            {
+                "reasoning": "I need to search the document.",
+                "code": "print(len(CONTEXT))",
+                "is_final": False,
+                "final_answer": None,
+            }
+        )
+        result = OpenAICompatibleBackend._parse_structured_response(raw)
+        assert result is not None
+        assert result.reasoning == "I need to search the document."
+        assert result.code == "print(len(CONTEXT))"
+        assert result.is_final is False
+        assert result.final_answer is None
+
+    def test_final_answer(self) -> None:
+        raw = json.dumps(
+            {
+                "reasoning": "Done.",
+                "code": None,
+                "is_final": True,
+                "final_answer": "The answer is 42.",
+            }
+        )
+        result = OpenAICompatibleBackend._parse_structured_response(raw)
+        assert result is not None
+        assert result.is_final is True
+        assert result.final_answer == "The answer is 42."
+        assert result.code is None
+
+    def test_malformed_json_returns_none(self) -> None:
+        assert OpenAICompatibleBackend._parse_structured_response("not json{") is None
+
+    def test_missing_required_field_returns_none(self) -> None:
+        raw = json.dumps({"reasoning": "ok", "code": None})
+        assert OpenAICompatibleBackend._parse_structured_response(raw) is None
+
+    def test_non_object_json_returns_none(self) -> None:
+        assert OpenAICompatibleBackend._parse_structured_response('"just a string"') is None
+
+    def test_none_input_returns_none(self) -> None:
+        assert OpenAICompatibleBackend._parse_structured_response(None) is None  # type: ignore[arg-type]
+
+
+# -----------------------------------------------------------------------
+# OpenAICompatibleBackend.structured_completion (mocked client)
+# -----------------------------------------------------------------------
+
+
+class TestOpenAICompatibleStructuredCompletion:
+    def _make_backend(self) -> OpenAICompatibleBackend:
+        """Create an OpenAICompatibleBackend with a mocked client."""
+        with patch.object(OpenAICompatibleBackend, "__init__", lambda self, **kw: None):
+            backend = OpenAICompatibleBackend.__new__(OpenAICompatibleBackend)
+            backend.client = MagicMock()
+            backend.base_url = "http://localhost:11434/v1"
+            backend._async_client = None
+            return backend
+
+    def _mock_response(
+        self,
+        text: str = "response",
+        prompt_tokens: int | None = 10,
+        completion_tokens: int | None = 5,
+        has_usage: bool = True,
+    ) -> MagicMock:
+        response = MagicMock()
+        choice = MagicMock()
+        choice.message.content = text
+        response.choices = [choice]
+        if has_usage:
+            response.usage.prompt_tokens = prompt_tokens
+            response.usage.completion_tokens = completion_tokens
+        else:
+            response.usage = None
+        return response
+
+    def test_happy_path_returns_structured(self) -> None:
+        backend = self._make_backend()
+        json_text = json.dumps(
+            {
+                "reasoning": "Searching...",
+                "code": "print(CONTEXT[:100])",
+                "is_final": False,
+                "final_answer": None,
+            }
+        )
+        backend.client.chat.completions.create.return_value = self._mock_response(text=json_text)
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "gpt-4o")
+
+        assert result.structured is not None
+        assert isinstance(result.structured, StructuredResponse)
+        assert result.structured.reasoning == "Searching..."
+        assert result.structured.code == "print(CONTEXT[:100])"
+        assert result.structured.is_final is False
+        assert result.text == json_text
+
+    def test_response_format_passed_to_api(self) -> None:
+        backend = self._make_backend()
+        json_text = json.dumps(
+            {
+                "reasoning": "ok",
+                "code": None,
+                "is_final": True,
+                "final_answer": "done",
+            }
+        )
+        backend.client.chat.completions.create.return_value = self._mock_response(text=json_text)
+        backend.structured_completion([{"role": "user", "content": "hi"}], "gpt-4o")
+
+        call_kwargs = backend.client.chat.completions.create.call_args
+        assert call_kwargs.kwargs["response_format"] == {"type": "json_object"}
+
+    def test_malformed_json_returns_none_structured(self) -> None:
+        backend = self._make_backend()
+        backend.client.chat.completions.create.return_value = self._mock_response(
+            text="This is not JSON at all"
+        )
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+
+        assert result.structured is None
+        assert result.text == "This is not JSON at all"
+
+    def test_token_usage_populated(self) -> None:
+        backend = self._make_backend()
+        json_text = json.dumps(
+            {
+                "reasoning": "r",
+                "code": None,
+                "is_final": True,
+                "final_answer": "a",
+            }
+        )
+        backend.client.chat.completions.create.return_value = self._mock_response(
+            text=json_text, prompt_tokens=42, completion_tokens=17
+        )
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+
+        assert result.usage.input_tokens == 42
+        assert result.usage.output_tokens == 17
+
+    def test_temperature_and_max_tokens_passthrough(self) -> None:
+        backend = self._make_backend()
+        json_text = json.dumps(
+            {
+                "reasoning": "r",
+                "code": None,
+                "is_final": True,
+                "final_answer": "a",
+            }
+        )
+        backend.client.chat.completions.create.return_value = self._mock_response(text=json_text)
+        backend.structured_completion(
+            [{"role": "user", "content": "hi"}], "m", temperature=0.5, max_tokens=1000
+        )
+
+        call_kwargs = backend.client.chat.completions.create.call_args
+        assert call_kwargs.kwargs["temperature"] == 0.5
+        assert call_kwargs.kwargs["max_tokens"] == 1000
+
+    def test_api_error_propagates(self) -> None:
+        backend = self._make_backend()
+        backend.client.chat.completions.create.side_effect = RuntimeError("API error")
+
+        with pytest.raises(RuntimeError, match="API error"):
+            backend.structured_completion([{"role": "user", "content": "hi"}], "m")
