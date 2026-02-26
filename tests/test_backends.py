@@ -517,18 +517,18 @@ class TestClaudeCLIBackendCompletion:
 class TestLLMBackendStructuredCompletion:
     def test_default_raises_not_implemented(self) -> None:
         """ABC default structured_completion() raises NotImplementedError."""
-        backend = CallbackBackend(lambda msgs, model: "ok")
+        backend = CallbackBackend(lambda _msgs, _model: "ok")
         with pytest.raises(NotImplementedError, match="does not support structured output"):
             backend.structured_completion([{"role": "user", "content": "hi"}], "m")
 
     def test_callback_backend_does_not_support_structured_output(self) -> None:
-        backend = CallbackBackend(lambda msgs, model: "ok")
+        backend = CallbackBackend(lambda _msgs, _model: "ok")
         assert backend.supports_structured_output is False
 
     def test_anthropic_backend_does_not_support_structured_output(self) -> None:
         with (
             patch("rlm.backends.anthropic", create=True),
-            patch.object(AnthropicBackend, "__init__", lambda self, **kw: None),
+            patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
         ):
             backend = AnthropicBackend.__new__(AnthropicBackend)
             assert backend.supports_structured_output is False
@@ -541,7 +541,7 @@ class TestLLMBackendStructuredCompletion:
 
 class TestOpenAICompatibleSupportsStructured:
     def test_returns_true(self) -> None:
-        with patch.object(OpenAICompatibleBackend, "__init__", lambda self, **kw: None):
+        with patch.object(OpenAICompatibleBackend, "__init__", lambda _self, **_kw: None):
             backend = OpenAICompatibleBackend.__new__(OpenAICompatibleBackend)
             assert backend.supports_structured_output is True
 
@@ -643,7 +643,7 @@ class TestParseStructuredResponse:
 class TestOpenAICompatibleStructuredCompletion:
     def _make_backend(self) -> OpenAICompatibleBackend:
         """Create an OpenAICompatibleBackend with a mocked client."""
-        with patch.object(OpenAICompatibleBackend, "__init__", lambda self, **kw: None):
+        with patch.object(OpenAICompatibleBackend, "__init__", lambda _self, **_kw: None):
             backend = OpenAICompatibleBackend.__new__(OpenAICompatibleBackend)
             backend.client = MagicMock()
             backend.base_url = "http://localhost:11434/v1"

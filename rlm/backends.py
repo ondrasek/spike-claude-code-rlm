@@ -367,6 +367,22 @@ class OpenAICompatibleBackend(LLMBackend):
             final_answer=final_answer,
         )
 
+    @staticmethod
+    def _build_result(
+        response: Any,
+        *,
+        structured: StructuredResponse | None = None,
+    ) -> CompletionResult:
+        """Extract text, token usage, and optional structured data from a raw API response."""
+        text = response.choices[0].message.content or ""
+        usage = TokenUsage()
+        if response.usage:
+            usage = TokenUsage(
+                input_tokens=response.usage.prompt_tokens or 0,
+                output_tokens=response.usage.completion_tokens or 0,
+            )
+        return CompletionResult(text=text, usage=usage, structured=structured)
+
     def structured_completion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
     ) -> CompletionResult:
@@ -405,17 +421,9 @@ class OpenAICompatibleBackend(LLMBackend):
             params["max_tokens"] = kwargs["max_tokens"]
 
         response = self.client.chat.completions.create(**params)
-
         text = response.choices[0].message.content or ""
-        usage = TokenUsage()
-        if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens or 0,
-                output_tokens=response.usage.completion_tokens or 0,
-            )
-
         structured = self._parse_structured_response(text)
-        return CompletionResult(text=text, usage=usage, structured=structured)
+        return self._build_result(response, structured=structured)
 
     def completion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
@@ -448,14 +456,7 @@ class OpenAICompatibleBackend(LLMBackend):
             params["max_tokens"] = kwargs["max_tokens"]
 
         response = self.client.chat.completions.create(**params)
-        text = response.choices[0].message.content or ""
-        usage = TokenUsage()
-        if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens or 0,
-                output_tokens=response.usage.completion_tokens or 0,
-            )
-        return CompletionResult(text=text, usage=usage)
+        return self._build_result(response)
 
     async def acompletion(
         self, messages: list[dict[str, str]], model: str, **kwargs: Any
@@ -490,14 +491,7 @@ class OpenAICompatibleBackend(LLMBackend):
             params["max_tokens"] = kwargs["max_tokens"]
 
         response = await async_client.chat.completions.create(**params)
-        text = response.choices[0].message.content or ""
-        usage = TokenUsage()
-        if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.prompt_tokens or 0,
-                output_tokens=response.usage.completion_tokens or 0,
-            )
-        return CompletionResult(text=text, usage=usage)
+        return self._build_result(response)
 
 
 class CallbackBackend(LLMBackend):
