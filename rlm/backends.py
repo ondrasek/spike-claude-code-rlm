@@ -342,11 +342,29 @@ class OpenAICompatibleBackend(LLMBackend):
             logger.debug("Structured output: missing required fields %s", required - data.keys())
             return None
 
+        reasoning = data["reasoning"]
+        code = data["code"]
+        is_final = data["is_final"]
+        final_answer = data["final_answer"]
+
+        if not isinstance(reasoning, str):
+            logger.debug("Structured output: 'reasoning' must be a string")
+            return None
+        if code is not None and not isinstance(code, str):
+            logger.debug("Structured output: 'code' must be a string or null")
+            return None
+        if not isinstance(is_final, bool):
+            logger.debug("Structured output: 'is_final' must be a boolean")
+            return None
+        if final_answer is not None and not isinstance(final_answer, str):
+            logger.debug("Structured output: 'final_answer' must be a string or null")
+            return None
+
         return StructuredResponse(
-            reasoning=str(data["reasoning"]),
-            code=data["code"] if data["code"] is not None else None,
-            is_final=bool(data["is_final"]),
-            final_answer=data["final_answer"] if data["final_answer"] is not None else None,
+            reasoning=reasoning,
+            code=code,
+            is_final=is_final,
+            final_answer=final_answer,
         )
 
     def structured_completion(
@@ -386,11 +404,7 @@ class OpenAICompatibleBackend(LLMBackend):
         if "max_tokens" in kwargs:
             params["max_tokens"] = kwargs["max_tokens"]
 
-        try:
-            response = self.client.chat.completions.create(**params)
-        except Exception:
-            logger.debug("Structured completion API call failed", exc_info=True)
-            raise
+        response = self.client.chat.completions.create(**params)
 
         text = response.choices[0].message.content or ""
         usage = TokenUsage()

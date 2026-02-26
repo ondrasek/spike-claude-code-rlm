@@ -596,6 +596,44 @@ class TestParseStructuredResponse:
     def test_none_input_returns_none(self) -> None:
         assert OpenAICompatibleBackend._parse_structured_response(None) is None  # type: ignore[arg-type]
 
+    def test_wrong_type_reasoning_returns_none(self) -> None:
+        raw = json.dumps({"reasoning": 123, "code": None, "is_final": True, "final_answer": None})
+        assert OpenAICompatibleBackend._parse_structured_response(raw) is None
+
+    def test_wrong_type_is_final_string_returns_none(self) -> None:
+        """Ensures 'false' string is not coerced to True via bool()."""
+        raw = json.dumps(
+            {
+                "reasoning": "r",
+                "code": None,
+                "is_final": "false",
+                "final_answer": None,
+            }
+        )
+        assert OpenAICompatibleBackend._parse_structured_response(raw) is None
+
+    def test_wrong_type_code_returns_none(self) -> None:
+        raw = json.dumps(
+            {
+                "reasoning": "r",
+                "code": 42,
+                "is_final": False,
+                "final_answer": None,
+            }
+        )
+        assert OpenAICompatibleBackend._parse_structured_response(raw) is None
+
+    def test_wrong_type_final_answer_returns_none(self) -> None:
+        raw = json.dumps(
+            {
+                "reasoning": "r",
+                "code": None,
+                "is_final": True,
+                "final_answer": ["not", "a", "string"],
+            }
+        )
+        assert OpenAICompatibleBackend._parse_structured_response(raw) is None
+
 
 # -----------------------------------------------------------------------
 # OpenAICompatibleBackend.structured_completion (mocked client)
