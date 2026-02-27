@@ -66,8 +66,11 @@ def _validate_structured_fields(data: dict[str, Any]) -> StructuredResponse | No
     Returns ``None`` when the dict is missing required fields or has wrong types.
     """
     required = {"reasoning", "code", "is_final", "final_answer"}
-    if not required.issubset(data):
-        logger.debug("Structured output: missing required fields %s", required - data.keys())
+    data_keys = set(data.keys())
+    if data_keys != required:
+        missing = required - data_keys
+        extra = data_keys - required
+        logger.debug("Structured output: missing=%s extra=%s", missing, extra)
         return None
 
     reasoning = data["reasoning"]
@@ -349,10 +352,23 @@ class AnthropicBackend(LLMBackend):
         text_parts: list[str] = []
 
         for block in content:
-            if getattr(block, "type", None) == "tool_use" and block.name == ANTHROPIC_TOOL_NAME:
-                tool_input = block.input
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == ANTHROPIC_TOOL_NAME
+            ):
+                candidate = getattr(block, "input", None)
+                if tool_input is None and isinstance(candidate, dict):
+                    tool_input = candidate
+                elif tool_input is not None:
+                    logger.warning(
+                        "Multiple Anthropic tool_use blocks named %s found; "
+                        "using the first and ignoring subsequent ones.",
+                        ANTHROPIC_TOOL_NAME,
+                    )
+                else:
+                    logger.debug("Structured output: tool input is not a JSON object")
             elif getattr(block, "type", None) == "text":
-                text_parts.append(block.text)
+                text_parts.append(getattr(block, "text", ""))
 
         return tool_input, "".join(text_parts)
 

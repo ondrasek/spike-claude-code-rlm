@@ -154,7 +154,7 @@ class TestAnthropicBackendCompletion:
         """Create an AnthropicBackend with a mocked client."""
         with (
             patch("rlm.backends.anthropic", create=True),
-            patch.object(AnthropicBackend, "__init__", lambda self, **kw: None),
+            patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
         ):
             backend = AnthropicBackend.__new__(AnthropicBackend)
             backend.client = MagicMock()
@@ -813,6 +813,16 @@ class TestValidateStructuredFields:
         data = {"reasoning": "r", "code": None, "is_final": True, "final_answer": ["list"]}
         assert _validate_structured_fields(data) is None
 
+    def test_extra_keys_rejected(self) -> None:
+        data = {
+            "reasoning": "r",
+            "code": None,
+            "is_final": True,
+            "final_answer": None,
+            "extra_field": "should fail",
+        }
+        assert _validate_structured_fields(data) is None
+
 
 # -----------------------------------------------------------------------
 # AnthropicBackend._extract_tool_use_input
@@ -858,8 +868,9 @@ class TestAnthropicExtractToolUseInput:
 
     def test_wrong_tool_name_ignored(self) -> None:
         content = [self._make_tool_use_block(name="other_tool")]
-        tool_input, text = AnthropicBackend._extract_tool_use_input(content)
+        tool_input, _text = AnthropicBackend._extract_tool_use_input(content)
         assert tool_input is None
+        assert _text == ""
 
     def test_mixed_blocks(self) -> None:
         content = [
@@ -876,6 +887,36 @@ class TestAnthropicExtractToolUseInput:
         assert tool_input is None
         assert text == ""
 
+    def test_non_dict_input_ignored(self) -> None:
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = ANTHROPIC_TOOL_NAME
+        block.input = "not a dict"
+        tool_input, text = AnthropicBackend._extract_tool_use_input([block])
+        assert tool_input is None
+        assert text == ""
+
+    def test_duplicate_tool_use_keeps_first(self) -> None:
+        first = self._make_tool_use_block(
+            input_data={
+                "reasoning": "first",
+                "code": None,
+                "is_final": True,
+                "final_answer": "a",
+            }
+        )
+        second = self._make_tool_use_block(
+            input_data={
+                "reasoning": "second",
+                "code": None,
+                "is_final": True,
+                "final_answer": "b",
+            }
+        )
+        tool_input, _text = AnthropicBackend._extract_tool_use_input([first, second])
+        assert tool_input is not None
+        assert tool_input["reasoning"] == "first"
+
 
 # -----------------------------------------------------------------------
 # AnthropicBackend.structured_completion (mocked client)
@@ -887,7 +928,7 @@ class TestAnthropicStructuredCompletion:
         """Create an AnthropicBackend with a mocked client."""
         with (
             patch("rlm.backends.anthropic", create=True),
-            patch.object(AnthropicBackend, "__init__", lambda self, **kw: None),
+            patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
         ):
             backend = AnthropicBackend.__new__(AnthropicBackend)
             backend.client = MagicMock()
