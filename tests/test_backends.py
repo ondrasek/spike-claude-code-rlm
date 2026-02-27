@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from rlm.backends import (
+    ANTHROPIC_TOOL_DEFINITION,
+    ANTHROPIC_TOOL_NAME,
     AnthropicBackend,
     CallbackBackend,
     ClaudeCLIBackend,
@@ -16,6 +18,7 @@ from rlm.backends import (
     OpenAICompatibleBackend,
     StructuredResponse,
     TokenUsage,
+    _validate_structured_fields,
 )
 
 # -----------------------------------------------------------------------
@@ -151,7 +154,7 @@ class TestAnthropicBackendCompletion:
         """Create an AnthropicBackend with a mocked client."""
         with (
             patch("rlm.backends.anthropic", create=True),
-            patch.object(AnthropicBackend, "__init__", lambda self, **kw: None),
+            patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
         ):
             backend = AnthropicBackend.__new__(AnthropicBackend)
             backend.client = MagicMock()
@@ -525,13 +528,13 @@ class TestLLMBackendStructuredCompletion:
         backend = CallbackBackend(lambda _msgs, _model: "ok")
         assert backend.supports_structured_output is False
 
-    def test_anthropic_backend_does_not_support_structured_output(self) -> None:
+    def test_anthropic_backend_supports_structured_output(self) -> None:
         with (
             patch("rlm.backends.anthropic", create=True),
             patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
         ):
             backend = AnthropicBackend.__new__(AnthropicBackend)
-            assert backend.supports_structured_output is False
+            assert backend.supports_structured_output is True
 
 
 # -----------------------------------------------------------------------
@@ -757,3 +760,313 @@ class TestOpenAICompatibleStructuredCompletion:
 
         with pytest.raises(RuntimeError, match="API error"):
             backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+
+
+# -----------------------------------------------------------------------
+# _validate_structured_fields (module-level helper)
+# -----------------------------------------------------------------------
+
+
+class TestValidateStructuredFields:
+    def test_happy_path(self) -> None:
+        data = {
+            "reasoning": "Searching the document.",
+            "code": "print(len(CONTEXT))",
+            "is_final": False,
+            "final_answer": None,
+        }
+        result = _validate_structured_fields(data)
+        assert result is not None
+        assert result.reasoning == "Searching the document."
+        assert result.code == "print(len(CONTEXT))"
+        assert result.is_final is False
+        assert result.final_answer is None
+
+    def test_final_answer_scenario(self) -> None:
+        data = {
+            "reasoning": "Done.",
+            "code": None,
+            "is_final": True,
+            "final_answer": "The answer is 42.",
+        }
+        result = _validate_structured_fields(data)
+        assert result is not None
+        assert result.is_final is True
+        assert result.final_answer == "The answer is 42."
+
+    def test_missing_fields_returns_none(self) -> None:
+        assert _validate_structured_fields({"reasoning": "ok"}) is None
+
+    def test_wrong_type_reasoning_returns_none(self) -> None:
+        data = {"reasoning": 123, "code": None, "is_final": True, "final_answer": None}
+        assert _validate_structured_fields(data) is None
+
+    def test_wrong_type_is_final_returns_none(self) -> None:
+        data = {"reasoning": "r", "code": None, "is_final": "false", "final_answer": None}
+        assert _validate_structured_fields(data) is None
+
+    def test_wrong_type_code_returns_none(self) -> None:
+        data = {"reasoning": "r", "code": 42, "is_final": False, "final_answer": None}
+        assert _validate_structured_fields(data) is None
+
+    def test_wrong_type_final_answer_returns_none(self) -> None:
+        data = {"reasoning": "r", "code": None, "is_final": True, "final_answer": ["list"]}
+        assert _validate_structured_fields(data) is None
+
+    def test_extra_keys_rejected(self) -> None:
+        data = {
+            "reasoning": "r",
+            "code": None,
+            "is_final": True,
+            "final_answer": None,
+            "extra_field": "should fail",
+        }
+        assert _validate_structured_fields(data) is None
+
+
+# -----------------------------------------------------------------------
+# AnthropicBackend._extract_tool_use_input
+# -----------------------------------------------------------------------
+
+
+class TestAnthropicExtractToolUseInput:
+    @staticmethod
+    def _make_tool_use_block(
+        name: str = ANTHROPIC_TOOL_NAME,
+        input_data: dict[str, object] | None = None,
+    ) -> MagicMock:
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = name
+        block.input = input_data or {
+            "reasoning": "r",
+            "code": None,
+            "is_final": True,
+            "final_answer": "a",
+        }
+        return block
+
+    @staticmethod
+    def _make_text_block(text: str = "some text") -> MagicMock:
+        block = MagicMock()
+        block.type = "text"
+        block.text = text
+        return block
+
+    def test_tool_use_found(self) -> None:
+        content = [self._make_tool_use_block()]
+        tool_input, text = AnthropicBackend._extract_tool_use_input(content)
+        assert tool_input is not None
+        assert tool_input["reasoning"] == "r"
+        assert text == ""
+
+    def test_no_tool_use_block(self) -> None:
+        content = [self._make_text_block("hello")]
+        tool_input, text = AnthropicBackend._extract_tool_use_input(content)
+        assert tool_input is None
+        assert text == "hello"
+
+    def test_wrong_tool_name_ignored(self) -> None:
+        content = [self._make_tool_use_block(name="other_tool")]
+        tool_input, _text = AnthropicBackend._extract_tool_use_input(content)
+        assert tool_input is None
+        assert _text == ""
+
+    def test_mixed_blocks(self) -> None:
+        content = [
+            self._make_text_block("prefix "),
+            self._make_tool_use_block(),
+            self._make_text_block("suffix"),
+        ]
+        tool_input, text = AnthropicBackend._extract_tool_use_input(content)
+        assert tool_input is not None
+        assert text == "prefix suffix"
+
+    def test_empty_content(self) -> None:
+        tool_input, text = AnthropicBackend._extract_tool_use_input([])
+        assert tool_input is None
+        assert text == ""
+
+    def test_non_dict_input_ignored(self) -> None:
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = ANTHROPIC_TOOL_NAME
+        block.input = "not a dict"
+        tool_input, text = AnthropicBackend._extract_tool_use_input([block])
+        assert tool_input is None
+        assert text == ""
+
+    def test_duplicate_tool_use_keeps_first(self) -> None:
+        first = self._make_tool_use_block(
+            input_data={
+                "reasoning": "first",
+                "code": None,
+                "is_final": True,
+                "final_answer": "a",
+            }
+        )
+        second = self._make_tool_use_block(
+            input_data={
+                "reasoning": "second",
+                "code": None,
+                "is_final": True,
+                "final_answer": "b",
+            }
+        )
+        tool_input, _text = AnthropicBackend._extract_tool_use_input([first, second])
+        assert tool_input is not None
+        assert tool_input["reasoning"] == "first"
+
+
+# -----------------------------------------------------------------------
+# AnthropicBackend.structured_completion (mocked client)
+# -----------------------------------------------------------------------
+
+
+class TestAnthropicStructuredCompletion:
+    def _make_backend(self) -> AnthropicBackend:
+        """Create an AnthropicBackend with a mocked client."""
+        with (
+            patch("rlm.backends.anthropic", create=True),
+            patch.object(AnthropicBackend, "__init__", lambda _self, **_kw: None),
+        ):
+            backend = AnthropicBackend.__new__(AnthropicBackend)
+            backend.client = MagicMock()
+            backend._async_client = None
+            return backend
+
+    def _mock_response(
+        self,
+        content: list[MagicMock] | None = None,
+        input_tokens: int = 10,
+        output_tokens: int = 5,
+    ) -> MagicMock:
+        response = MagicMock()
+        if content is not None:
+            response.content = content
+        else:
+            # Default: a tool_use block with valid input
+            tool_block = MagicMock()
+            tool_block.type = "tool_use"
+            tool_block.name = ANTHROPIC_TOOL_NAME
+            tool_block.input = {
+                "reasoning": "Searching...",
+                "code": "print(CONTEXT[:100])",
+                "is_final": False,
+                "final_answer": None,
+            }
+            response.content = [tool_block]
+        response.usage.input_tokens = input_tokens
+        response.usage.output_tokens = output_tokens
+        return response
+
+    def test_happy_path_returns_structured(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "claude-test")
+        assert result.structured is not None
+        assert isinstance(result.structured, StructuredResponse)
+        assert result.structured.reasoning == "Searching..."
+        assert result.structured.code == "print(CONTEXT[:100])"
+        assert result.structured.is_final is False
+
+    def test_tools_and_tool_choice_passed_to_api(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        backend.structured_completion([{"role": "user", "content": "hi"}], "claude-test")
+
+        call_kwargs = backend.client.messages.create.call_args.kwargs
+        assert call_kwargs["tools"] == [ANTHROPIC_TOOL_DEFINITION]
+        assert call_kwargs["tool_choice"] == {
+            "type": "tool",
+            "name": ANTHROPIC_TOOL_NAME,
+        }
+
+    def test_system_message_splitting(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        messages = [
+            {"role": "system", "content": "Be helpful"},
+            {"role": "user", "content": "hi"},
+        ]
+        backend.structured_completion(messages, "claude-test")
+        call_kwargs = backend.client.messages.create.call_args.kwargs
+        assert call_kwargs["system"] == "Be helpful"
+        for msg in call_kwargs["messages"]:
+            assert msg["role"] != "system"
+
+    def test_malformed_tool_input_returns_none_structured(self) -> None:
+        backend = self._make_backend()
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.name = ANTHROPIC_TOOL_NAME
+        tool_block.input = {"reasoning": 123}  # wrong type, missing fields
+        backend.client.messages.create.return_value = self._mock_response(content=[tool_block])
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "claude-test")
+        assert result.structured is None
+        # text should be the JSON serialisation of the tool input
+        assert result.text == json.dumps({"reasoning": 123})
+
+    def test_no_tool_use_block_returns_text(self) -> None:
+        backend = self._make_backend()
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "I cannot use tools right now."
+        backend.client.messages.create.return_value = self._mock_response(content=[text_block])
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "claude-test")
+        assert result.structured is None
+        assert result.text == "I cannot use tools right now."
+
+    def test_token_usage_populated(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response(
+            input_tokens=42, output_tokens=17
+        )
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "claude-test")
+        assert result.usage.input_tokens == 42
+        assert result.usage.output_tokens == 17
+
+    def test_temperature_passthrough(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        backend.structured_completion([{"role": "user", "content": "hi"}], "m", temperature=0.5)
+        call_kwargs = backend.client.messages.create.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.5
+
+    def test_default_max_tokens(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+        call_kwargs = backend.client.messages.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 4096
+
+    def test_custom_max_tokens(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.return_value = self._mock_response()
+        backend.structured_completion([{"role": "user", "content": "hi"}], "m", max_tokens=1000)
+        call_kwargs = backend.client.messages.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 1000
+
+    def test_api_error_propagates(self) -> None:
+        backend = self._make_backend()
+        backend.client.messages.create.side_effect = RuntimeError("API error")
+        with pytest.raises(RuntimeError, match="API error"):
+            backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+
+    def test_final_answer_scenario(self) -> None:
+        backend = self._make_backend()
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.name = ANTHROPIC_TOOL_NAME
+        tool_block.input = {
+            "reasoning": "Done.",
+            "code": None,
+            "is_final": True,
+            "final_answer": "The answer is 42.",
+        }
+        backend.client.messages.create.return_value = self._mock_response(content=[tool_block])
+        result = backend.structured_completion([{"role": "user", "content": "hi"}], "m")
+        assert result.structured is not None
+        assert result.structured.is_final is True
+        assert result.structured.final_answer == "The answer is 42."
+        assert result.structured.code is None

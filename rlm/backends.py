@@ -50,6 +50,54 @@ STRUCTURED_RESPONSE_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+ANTHROPIC_TOOL_NAME = "rlm_response"
+ANTHROPIC_TOOL_DEFINITION: dict[str, Any] = {
+    "name": ANTHROPIC_TOOL_NAME,
+    "description": (
+        "Submit a structured RLM response with reasoning, optional code, and optional final answer."
+    ),
+    "input_schema": STRUCTURED_RESPONSE_SCHEMA,
+}
+
+
+def _validate_structured_fields(data: dict[str, Any]) -> StructuredResponse | None:
+    """Validate a dict against the structured response schema.
+
+    Returns ``None`` when the dict is missing required fields or has wrong types.
+    """
+    required = {"reasoning", "code", "is_final", "final_answer"}
+    data_keys = set(data.keys())
+    if data_keys != required:
+        missing = required - data_keys
+        extra = data_keys - required
+        logger.debug("Structured output: missing=%s extra=%s", missing, extra)
+        return None
+
+    reasoning = data["reasoning"]
+    code = data["code"]
+    is_final = data["is_final"]
+    final_answer = data["final_answer"]
+
+    if not isinstance(reasoning, str):
+        logger.debug("Structured output: 'reasoning' must be a string")
+        return None
+    if code is not None and not isinstance(code, str):
+        logger.debug("Structured output: 'code' must be a string or null")
+        return None
+    if not isinstance(is_final, bool):
+        logger.debug("Structured output: 'is_final' must be a boolean")
+        return None
+    if final_answer is not None and not isinstance(final_answer, str):
+        logger.debug("Structured output: 'final_answer' must be a string or null")
+        return None
+
+    return StructuredResponse(
+        reasoning=reasoning,
+        code=code,
+        is_final=is_final,
+        final_answer=final_answer,
+    )
+
 
 @dataclass
 class CompletionResult:
@@ -168,6 +216,11 @@ class AnthropicBackend(LLMBackend):
         self.client = anthropic.Anthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
         self._async_client: Any = None
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """Anthropic supports structured output via tool-use."""
+        return True
+
     def _get_async_client(self) -> Any:
         """Return a reusable async Anthropic client."""
         if self._async_client is None:
@@ -279,6 +332,101 @@ class AnthropicBackend(LLMBackend):
         )
         return CompletionResult(text=text, usage=usage)
 
+    @staticmethod
+    def _extract_tool_use_input(content: list[Any]) -> tuple[dict[str, Any] | None, str]:
+        """Extract the tool-use input dict from Anthropic response content blocks.
+
+        Parameters
+        ----------
+        content : list[Any]
+            List of content blocks from the Anthropic API response.
+
+        Returns
+        -------
+        tuple[dict | None, str]
+            ``(tool_input, text)`` — the parsed tool input dict (or ``None``
+            if no matching ``tool_use`` block was found) and concatenated text
+            from any ``TextBlock`` entries.
+        """
+        tool_input: dict[str, Any] | None = None
+        text_parts: list[str] = []
+
+        for block in content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == ANTHROPIC_TOOL_NAME
+            ):
+                candidate = getattr(block, "input", None)
+                if tool_input is None and isinstance(candidate, dict):
+                    tool_input = candidate
+                elif tool_input is not None:
+                    logger.warning(
+                        "Multiple Anthropic tool_use blocks named %s found; "
+                        "using the first and ignoring subsequent ones.",
+                        ANTHROPIC_TOOL_NAME,
+                    )
+                else:
+                    logger.debug("Structured output: tool input is not a JSON object")
+            elif getattr(block, "type", None) == "text":
+                text_parts.append(getattr(block, "text", ""))
+
+        return tool_input, "".join(text_parts)
+
+    def structured_completion(
+        self, messages: list[dict[str, str]], model: str, **kwargs: Any
+    ) -> CompletionResult:
+        """Generate a structured completion using Anthropic tool-use.
+
+        Defines a tool whose ``input_schema`` matches the structured response
+        schema and forces the model to call it via ``tool_choice``.  The
+        tool-use input dict is then validated into a :class:`StructuredResponse`.
+
+        Parameters
+        ----------
+        messages : list[dict[str, str]]
+            List of message dicts.
+        model : str
+            Claude model identifier.
+        **kwargs
+            Additional parameters (``temperature``, ``max_tokens``, etc.).
+
+        Returns
+        -------
+        CompletionResult
+            Result with ``structured`` populated on success, ``None`` on
+            parse failure.
+        """
+        system_message, chat_messages = self._split_messages(messages)
+
+        params: dict[str, Any] = {
+            "model": model,
+            "max_tokens": kwargs.get("max_tokens", 4096),
+            "messages": chat_messages,
+            "tools": [ANTHROPIC_TOOL_DEFINITION],
+            "tool_choice": {"type": "tool", "name": ANTHROPIC_TOOL_NAME},
+        }
+
+        if system_message:
+            params["system"] = system_message
+
+        if "temperature" in kwargs:
+            params["temperature"] = kwargs["temperature"]
+
+        response = self.client.messages.create(**params)
+        usage = TokenUsage(
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+        )
+
+        tool_input, text_content = self._extract_tool_use_input(response.content)
+
+        if tool_input is None:
+            return CompletionResult(text=text_content, usage=usage, structured=None)
+
+        structured = _validate_structured_fields(tool_input)
+        text = json.dumps(tool_input)
+        return CompletionResult(text=text, usage=usage, structured=structured)
+
 
 class OpenAICompatibleBackend(LLMBackend):
     """Backend for OpenAI-compatible APIs (Ollama, vLLM, LM Studio, etc.)."""
@@ -337,35 +485,7 @@ class OpenAICompatibleBackend(LLMBackend):
             logger.debug("Structured output: response is not a JSON object")
             return None
 
-        required = {"reasoning", "code", "is_final", "final_answer"}
-        if not required.issubset(data):
-            logger.debug("Structured output: missing required fields %s", required - data.keys())
-            return None
-
-        reasoning = data["reasoning"]
-        code = data["code"]
-        is_final = data["is_final"]
-        final_answer = data["final_answer"]
-
-        if not isinstance(reasoning, str):
-            logger.debug("Structured output: 'reasoning' must be a string")
-            return None
-        if code is not None and not isinstance(code, str):
-            logger.debug("Structured output: 'code' must be a string or null")
-            return None
-        if not isinstance(is_final, bool):
-            logger.debug("Structured output: 'is_final' must be a boolean")
-            return None
-        if final_answer is not None and not isinstance(final_answer, str):
-            logger.debug("Structured output: 'final_answer' must be a string or null")
-            return None
-
-        return StructuredResponse(
-            reasoning=reasoning,
-            code=code,
-            is_final=is_final,
-            final_answer=final_answer,
-        )
+        return _validate_structured_fields(data)
 
     @staticmethod
     def _build_result(
