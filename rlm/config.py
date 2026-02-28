@@ -71,6 +71,9 @@ class SettingsConfig:
     max_tokens: int | None = None
     verbose: bool | None = None
     compact: bool | None = None
+    # NOTE(eng): timeout is consumed as a float (seconds) by the CLI and RLM,
+    # but is typed as int here. This can be confusing for fractional timeouts
+    # (e.g. 0.5) in YAML configs and for static type-checking.
     timeout: int | None = None
     max_token_budget: int | None = None
     verify: bool | None = None
