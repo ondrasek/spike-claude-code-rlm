@@ -12,7 +12,7 @@ from typing import Any
 
 import click
 
-from .backends import LLMBackend
+from .backends import LLMBackend, StructuredResponse
 from .context import CompositeContext
 from .prompts import (
     get_context_engineer_per_query_prompt,
@@ -37,6 +37,8 @@ class RLMStats:
     context_engineer_calls: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    structured_extractions: int = 0
+    regex_extractions: int = 0
 
 
 @dataclass
@@ -633,25 +635,40 @@ class RLM:
         messages: list[dict[str, str]],
         stats: RLMStats,
         history: list[dict[str, Any]],
-    ) -> tuple[str, RLMResult | None]:
+    ) -> tuple[str, RLMResult | None, StructuredResponse | None]:
         """Call the root LLM and update stats.
+
+        When the backend supports structured output, calls
+        ``structured_completion()`` instead of ``completion()`` and returns the
+        parsed ``StructuredResponse`` (or ``None`` when parsing fails).
 
         Returns
         -------
-        tuple[str, RLMResult | None]
-            (response_text, error_result). error_result is None on success.
+        tuple[str, RLMResult | None, StructuredResponse | None]
+            ``(response_text, error_result, structured)``.  ``error_result`` is
+            ``None`` on success; ``structured`` is ``None`` when the backend
+            does not support structured output or parsing failed.
         """
         try:
-            result = self.backend.completion(messages, self.model, max_tokens=self.max_tokens)
+            if self.backend.supports_structured_output:
+                result = self.backend.structured_completion(
+                    messages, self.model, max_tokens=self.max_tokens
+                )
+            else:
+                result = self.backend.completion(messages, self.model, max_tokens=self.max_tokens)
         except Exception as e:
             error_msg = f"LLM call failed: {e!s}"
             self._log(f"ERROR: {error_msg}")
-            return "", RLMResult(
-                answer="",
-                stats=stats,
-                history=history,
-                success=False,
-                error=error_msg,
+            return (
+                "",
+                RLMResult(
+                    answer="",
+                    stats=stats,
+                    history=history,
+                    success=False,
+                    error=error_msg,
+                ),
+                None,
             )
 
         stats.total_input_tokens += result.usage.input_tokens
@@ -660,7 +677,7 @@ class RLM:
             f"LLM response: {len(result.text)} chars "
             f"(in={result.usage.input_tokens} out={result.usage.output_tokens} tokens)"
         )
-        return result.text, None
+        return result.text, None, result.structured
 
     def _finalize_answer(
         self,
@@ -678,6 +695,72 @@ class RLM:
         if self.verify:
             return self._verify_answer(answer, repl.context_str, stats)
         return answer
+
+    def _extract_code_from_response(
+        self,
+        response: str,
+        structured: StructuredResponse | None,
+        stats: RLMStats,
+        repl: REPLEnv,
+        iteration: int,
+        history: list[dict[str, Any]],
+    ) -> tuple[list[str], RLMResult | None]:
+        """Extract code blocks from structured output or regex, handling direct finals.
+
+        Parameters
+        ----------
+        response : str
+            Raw LLM response text.
+        structured : StructuredResponse | None
+            Parsed structured output (``None`` when unavailable).
+        stats : RLMStats
+            Statistics object to update.
+        repl : REPLEnv
+            REPL environment (for finalization).
+        iteration : int
+            Current iteration number (1-based).
+        history : list[dict[str, Any]]
+            History list to append to on direct final.
+
+        Returns
+        -------
+        tuple[list[str], RLMResult | None]
+            ``(code_blocks, direct_result)``.  When ``direct_result`` is not
+            ``None`` the caller should return it immediately (structured final).
+        """
+        # Path A: structured + is_final → return answer directly
+        if structured is not None and structured.is_final and structured.final_answer is not None:
+            stats.structured_extractions += 1
+            if structured.code is not None:
+                self._log("Structured is_final with code set; ignoring code")
+            structured_answer = self._finalize_answer(structured.final_answer, repl, stats)
+            history.append(
+                {
+                    "iteration": iteration,
+                    "response": response,
+                    "code": [],
+                    "output": "",
+                    "final_answer": structured_answer,
+                }
+            )
+            return [], RLMResult(
+                answer=structured_answer,
+                stats=stats,
+                history=history,
+                success=True,
+            )
+
+        # Path B: structured + code → use structured code
+        if structured is not None and structured.code is not None and structured.code.strip():
+            stats.structured_extractions += 1
+            self._log("Using structured code extraction")
+            return [structured.code], None
+
+        # Path C: regex fallback
+        code_blocks = self._extract_code_blocks(response)
+        if code_blocks:
+            stats.regex_extractions += 1
+        return code_blocks, None
 
     def _handle_no_code_blocks(
         self,
@@ -806,15 +889,19 @@ class RLM:
             self._log(f"Conversation messages: {len(messages)}")
 
             # Get LLM response
-            response, error_result = self._call_llm(messages, stats, history)
+            response, error_result, structured = self._call_llm(messages, stats, history)
             if error_result is not None:
                 return error_result
 
             # Add to conversation history
             messages.append({"role": "assistant", "content": response})
 
-            # Extract and execute code blocks
-            code_blocks = self._extract_code_blocks(response)
+            # Extract code blocks (structured output or regex fallback)
+            code_blocks, direct_result = self._extract_code_from_response(
+                response, structured, stats, repl, iteration + 1, history
+            )
+            if direct_result is not None:
+                return direct_result
 
             if not code_blocks:
                 if self._handle_no_code_blocks(response, repl, messages):
@@ -909,6 +996,8 @@ class RLM:
                 "context_engineer_calls": 0,
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
+                "structured_extractions": 0,
+                "regex_extractions": 0,
             }
         return {
             "iterations": self._last_stats.iterations,
@@ -917,4 +1006,6 @@ class RLM:
             "context_engineer_calls": self._last_stats.context_engineer_calls,
             "total_input_tokens": self._last_stats.total_input_tokens,
             "total_output_tokens": self._last_stats.total_output_tokens,
+            "structured_extractions": self._last_stats.structured_extractions,
+            "regex_extractions": self._last_stats.regex_extractions,
         }

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rlm.backends import CallbackBackend
+from rlm.backends import CallbackBackend, CompletionResult, TokenUsage
 from rlm.context import CompositeContext
 from rlm.rlm import RLM, RLMResult, RLMStats
 
@@ -33,6 +33,8 @@ class TestRLMStats:
         assert stats.sub_rlm_calls == 0
         assert stats.total_input_tokens == 0
         assert stats.total_output_tokens == 0
+        assert stats.structured_extractions == 0
+        assert stats.regex_extractions == 0
 
     def test_custom_initialization(self) -> None:
         stats = RLMStats(
@@ -476,7 +478,7 @@ class TestTokenBudgetGuard:
 
     def test_token_budget_returns_error(self) -> None:
         """Token budget should trip when usage exceeds the limit."""
-        from rlm.backends import CompletionResult, TokenUsage
+        from rlm.backends import CompletionResult
 
         def _cb(messages: list[dict[str, str]], model: str) -> str:
             return '```python\nprint("running")\n```'
@@ -570,3 +572,146 @@ class TestVerifyAnswer:
         assert "dubious claim" in result.answer
         assert "[Verification note:" in result.answer
         assert "not supported" in result.answer
+
+
+# =====================================================================
+# Structured output integration
+# =====================================================================
+
+
+class TestStructuredOutput:
+    """Tests for structured output extraction in the orchestrator."""
+
+    def test_structured_code_extraction(self) -> None:
+        """Backend returns structured code → executed in REPL, regex not used."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import make_structured_callback
+
+        results = [
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Exploring the context",
+                    code='print(f"Size: {len(CONTEXT)}")',
+                ),
+            ),
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Ready to answer",
+                    code='FINAL("The answer is 42")',
+                ),
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
+        result = rlm.completion(SAMPLE_TEXT, "What is the answer?")
+        assert result.success is True
+        assert "42" in result.answer
+        assert result.stats.structured_extractions >= 1
+        assert result.stats.regex_extractions == 0
+
+    def test_structured_final_without_code(self) -> None:
+        """Backend returns is_final=True with final_answer → no REPL execution."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import make_structured_callback
+
+        results = [
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="I know the answer",
+                    is_final=True,
+                    final_answer="the answer",
+                ),
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert result.answer == "the answer"
+        assert result.stats.structured_extractions == 1
+
+    def test_structured_fallback_to_regex(self) -> None:
+        """Backend supports structured but returns structured=None → regex kicks in."""
+        from .conftest import make_structured_callback
+
+        results = [
+            CompletionResult(
+                text='```python\nprint("hello")\n```',
+                usage=TokenUsage(),
+                structured=None,
+            ),
+            CompletionResult(
+                text='```python\nFINAL("regex answer")\n```',
+                usage=TokenUsage(),
+                structured=None,
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "regex answer" in result.answer
+        assert result.stats.regex_extractions >= 1
+        assert result.stats.structured_extractions == 0
+
+    def test_unsupported_backend_uses_regex(self) -> None:
+        """Standard CallbackBackend (supports=False) → regex path only."""
+        backend = make_final_in_two_iterations_callback()
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "42" in result.answer
+        assert result.stats.regex_extractions >= 1
+        assert result.stats.structured_extractions == 0
+
+    def test_structured_no_code_no_final_reprompts(self) -> None:
+        """Structured response with no code and not final → re-prompts, then succeeds."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import make_structured_callback
+
+        results = [
+            # First call: reasoning only, no code, not final → should re-prompt
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Let me think about this...",
+                    code=None,
+                    is_final=False,
+                ),
+            ),
+            # Second call: provides a final answer
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Now I know",
+                    is_final=True,
+                    final_answer="final answer",
+                ),
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10)
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert result.answer == "final answer"
+
+    def test_stats_tracking(self) -> None:
+        """Both counters appear in cost_summary() and default to 0."""
+        backend = CallbackBackend(lambda msgs, model: "no code here")
+        rlm = RLM(backend=backend, model="test-model")
+        summary = rlm.cost_summary()
+        assert "structured_extractions" in summary
+        assert "regex_extractions" in summary
+        assert summary["structured_extractions"] == 0
+        assert summary["regex_extractions"] == 0
