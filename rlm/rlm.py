@@ -193,6 +193,9 @@ class RLM:
         list[str]
             List of Python code strings.
         """
+        # NOTE(eng): This regex requires an exact "```python\n" fence. If the model
+        # outputs Windows newlines (\r\n), adds a space ("```python "), or uses a
+        # different tag (e.g. "py"), code blocks may not be detected.
         pattern = r"```python\n(.*?)```"
         return re.findall(pattern, text, re.DOTALL)
 
@@ -234,6 +237,10 @@ class RLM:
             str
                 LLM response.
             """
+            # NOTE(eng): current_depth is captured from _create_llm_query_fn() and is
+            # not incremented anywhere in the current call chain. As a result, the
+            # max_depth guard may never trip unless deeper closures are explicitly
+            # created/passed in.
             if current_depth >= self.max_depth:
                 return "[ERROR: Maximum recursion depth reached]"
 
@@ -569,6 +576,9 @@ class RLM:
                 error=f"Timeout after {self.timeout}s",
             )
         total_tokens = stats.total_input_tokens + stats.total_output_tokens
+        # NOTE(eng): Token-budget enforcement relies on backends populating TokenUsage.
+        # Some backends (e.g. CLI-based) may report 0 tokens, making this guard less
+        # effective.
         if self.max_token_budget and total_tokens > self.max_token_budget:
             self._log("Token budget exceeded")
             return RLMResult(
@@ -780,6 +790,9 @@ class RLM:
             preview = response[:300].replace("\n", "\n  ")
             self._log(f"Response preview:\n  {preview}")
 
+        # NOTE(eng): Substring matching on "FINAL" can produce false positives
+        # (e.g. "Finally, ..."). Prefer detecting an actual FINAL() call or relying
+        # on repl.final_answer (set by executing FINAL()).
         if "FINAL" in response or repl.final_answer:
             self._log("FINAL detected in response text, ending loop")
             return True
