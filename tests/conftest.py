@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from rlm.backends import (
     CallbackBackend,
-    CompletionResult,  # noqa: F811 — used by StructuredBackend
+    CompletionResult,
 )
 from rlm.context import CompositeContext, LazyContext, StringContext
 from rlm.repl import REPLEnv
@@ -192,6 +192,8 @@ class StructuredBackend(CallbackBackend):
     """
 
     def __init__(self, results: list[CompletionResult]) -> None:
+        if not results:
+            raise ValueError("StructuredBackend requires at least one CompletionResult")
         self._results = results
         self._idx = 0
 
@@ -199,7 +201,7 @@ class StructuredBackend(CallbackBackend):
         super().__init__(lambda msgs, model: "")
 
     @property
-    def supports_structured_output(self) -> bool:  # type: ignore[override]
+    def supports_structured_output(self) -> bool:
         return True
 
     def structured_completion(

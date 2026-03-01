@@ -751,7 +751,7 @@ class RLM:
             )
 
         # Path B: structured + code → use structured code
-        if structured is not None and structured.code is not None:
+        if structured is not None and structured.code is not None and structured.code.strip():
             stats.structured_extractions += 1
             self._log("Using structured code extraction")
             return [structured.code], None
