@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from rlm.backends import CallbackBackend
+from rlm.backends import (
+    CallbackBackend,
+    CompletionResult,  # noqa: F811 — used by StructuredBackend
+)
 from rlm.context import CompositeContext, LazyContext, StringContext
 from rlm.repl import REPLEnv
 
@@ -174,3 +177,54 @@ def noop_llm_query(snippet: str, task: str) -> str:
 def repl_env() -> REPLEnv:
     """REPLEnv with SAMPLE_TEXT and a no-op llm_query."""
     return REPLEnv(context=SAMPLE_TEXT, llm_query_fn=noop_llm_query)
+
+
+# ---------------------------------------------------------------------------
+# Structured output helpers
+# ---------------------------------------------------------------------------
+
+
+class StructuredBackend(CallbackBackend):
+    """Backend that supports structured output for testing.
+
+    Wraps a list of ``CompletionResult`` objects (with ``.structured`` set)
+    and cycles through them on successive calls.
+    """
+
+    def __init__(self, results: list[CompletionResult]) -> None:
+        self._results = results
+        self._idx = 0
+
+        # Provide a dummy callback for the parent class
+        super().__init__(lambda msgs, model: "")
+
+    @property
+    def supports_structured_output(self) -> bool:  # type: ignore[override]
+        return True
+
+    def structured_completion(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        **kwargs: object,
+    ) -> CompletionResult:
+        result = self._results[self._idx % len(self._results)]
+        self._idx += 1
+        return result
+
+    def completion(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        **kwargs: object,
+    ) -> CompletionResult:
+        # Shouldn't be called when supports_structured_output is True,
+        # but delegate to structured_completion as a safety net.
+        return self.structured_completion(messages, model, **kwargs)
+
+
+def make_structured_callback(
+    responses: list[CompletionResult],
+) -> StructuredBackend:
+    """Create a ``StructuredBackend`` from a list of pre-built results."""
+    return StructuredBackend(responses)
