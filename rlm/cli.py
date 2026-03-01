@@ -436,6 +436,12 @@ def main() -> int:
         help="Share the context-engineer document brief with the root LM",
     )
     parser.add_argument(
+        "--structured-output",
+        choices=["probe", "on", "off"],
+        default=None,
+        help="Structured output mode: 'probe' tests backend capability (default: probe)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {_get_version()}",
@@ -451,61 +457,76 @@ def main() -> int:
     return _main_legacy(args)
 
 
-def _main_legacy(args: argparse.Namespace) -> int:
-    """Original main() path — no config file."""
-    # Apply hardcoded defaults for values that argparse no longer defaults
-    backend_name = args.backend or "anthropic"
-    args.backend = backend_name
-    model = args.model
-    if not model:
-        click.echo("Error: --model is required (or use --config with a config file)", err=True)
-        return 1
-
-    max_iterations = args.max_iterations if args.max_iterations is not None else 10
-    max_tokens = args.max_tokens if args.max_tokens is not None else 4096
-
-    # Load context
+def _load_context_or_fail(
+    args: argparse.Namespace,
+) -> tuple[str | Path | CompositeContext, None] | tuple[None, int]:
+    """Load context from CLI args, returning (context, None) or (None, exit_code)."""
     try:
-        context = _load_context(args)
+        return _load_context(args), None
     except (FileNotFoundError, NotADirectoryError) as e:
         click.echo(f"Error: {e}", err=True)
-        return 1
+        return None, 1
     except Exception as e:
         click.echo(f"Error loading context: {e}", err=True)
-        return 1
+        return None, 1
 
-    click.echo(f"Query: {args.query}\n")
 
-    # Initialize backend
+def _create_backend_or_fail(
+    args: argparse.Namespace,
+) -> tuple[LLMBackend, None] | tuple[None, int]:
+    """Create LLM backend from CLI args, returning (backend, None) or (None, exit_code)."""
     try:
-        backend = _create_backend(args)
+        return _create_backend(args), None
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
-        return 1
+        return None, 1
     except ImportError as e:
         click.echo(f"Error initializing backend: {e}", err=True)
         click.echo("\nInstall required dependencies:", err=True)
         click.echo("  pip install anthropic  # or: pip install openai", err=True)
-        return 1
+        return None, 1
 
-    # Create RLM instance
-    ce_mode = args.context_engineer_mode or "off"
-    rlm = RLM(
+
+def _build_rlm_from_args(args: argparse.Namespace, backend: LLMBackend) -> RLM:
+    """Create an RLM instance from CLI args and a pre-built backend."""
+    return RLM(
         backend=backend,
-        model=model,
+        model=args.model,
         sub_rlm_model=args.sub_rlm_model,
-        max_iterations=max_iterations,
-        max_tokens=max_tokens,
+        max_iterations=_first_int(args.max_iterations, None, 10),
+        max_tokens=_first_int(args.max_tokens, None, 4096),
         verbose=args.verbose,
         compact_prompt=args.compact,
         include_context_sample=not args.no_context_sample,
         timeout=args.timeout,
         max_token_budget=args.max_token_budget,
         verify=args.verify,
-        context_engineer_mode=ce_mode,
+        context_engineer_mode=args.context_engineer_mode or "off",
         share_brief_with_root=args.share_brief_with_root,
+        structured_output=args.structured_output or "probe",
     )
 
+
+def _main_legacy(args: argparse.Namespace) -> int:
+    """Original main() path — no config file."""
+    args.backend = args.backend or "anthropic"
+    if not args.model:
+        click.echo("Error: --model is required (or use --config with a config file)", err=True)
+        return 1
+
+    context, err = _load_context_or_fail(args)
+    if err is not None:
+        return err
+    assert context is not None  # narrowing for mypy
+
+    click.echo(f"Query: {args.query}\n")
+
+    backend, err = _create_backend_or_fail(args)
+    if err is not None:
+        return err
+    assert backend is not None  # narrowing for mypy
+
+    rlm = _build_rlm_from_args(args, backend)
     return _run_completion(rlm, context, args.query)
 
 
@@ -552,6 +573,7 @@ def _merge_settings(args: argparse.Namespace, cfg: SettingsConfig) -> dict[str, 
         "share_brief_with_root": (
             args.share_brief_with_root or (cfg.share_brief_with_root is True)
         ),
+        "structured_output": args.structured_output or cfg.structured_output or "probe",
     }
 
 
@@ -663,6 +685,7 @@ def _main_with_config(args: argparse.Namespace) -> int:
         context_engineer_model=ce_resolved.model,
         context_engineer_pre_loop_prompt=ce_resolved.system_prompt,
         context_engineer_per_query_prompt=ce_resolved.per_query_prompt,
+        structured_output=settings["structured_output"],  # type: ignore[arg-type]
     )
 
     return _run_completion(rlm, context, args.query)

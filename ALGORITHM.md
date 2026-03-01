@@ -23,19 +23,29 @@ User Query + Context (file/dir/string)
    Optionally share brief with root LM (--share-brief-with-root)
         │
         ▼
-6. Send to LLM: system prompt (full/compact) + user query [+ context sample]
+6. [Structured Output Probe] (if --structured-output=probe, default)
+   Send cheap echo-JSON request to root backend via structured_completion()
+   If valid StructuredResponse returned → use structured output in main loop
+   If None/exception → fall back to regex code extraction
+   Result cached on RLM instance for all subsequent calls
+        │
+        ▼
+7. Send to LLM: system prompt (full/compact) + user query [+ context sample]
    [+ document brief if share_brief_with_root]
         │
         ▼
 ┌─── RLM Loop (max_iterations, timeout, token budget) ────────┐
 │                                           │
-│  7. Check timeout / token budget guards   │
-│  8. LLM responds with markdown            │
-│  9. Extract ```python blocks (regex)      │
-│ 10. If no code blocks:                    │
+│  8. Check timeout / token budget guards   │
+│  9. LLM responds (structured or markdown) │
+│ 10. Extract code:                         │
+│       a. structured_completion() if probe │
+│          passed or --structured-output=on │
+│       b. Regex fallback otherwise         │
+│ 11. If no code blocks:                    │
 │       - Check for "FINAL" in text → done  │
 │       - Else prompt LLM to write code     │
-│ 11. Execute each code block sequentially  │
+│ 12. Execute each code block sequentially  │
 │       in persistent REPL namespace        │
 │       ├── llm_query(snippet, task):       │
 │       │   a. [Context Engineer — per_query]│
@@ -47,10 +57,10 @@ User Query + Context (file/dir/string)
 │       │      [context note] +             │
 │       │      snippet + task               │
 │       │   c. Returns plain text           │
-│ 12. If FINAL() called → done              │
-│ 13. Feed captured print() output back     │
+│ 13. If FINAL() called → done              │
+│ 14. Feed captured print() output back     │
 │       as user message: "Output:\n..."     │
-│ 14. Continue loop                         │
+│ 15. Continue loop                         │
 │                                           │
 └─────────────────────────────────────────────────────────────┘
         │
@@ -92,15 +102,22 @@ sequenceDiagram
         Note over O: If share_brief_with_root:<br/>prepend brief to root user prompt
     end
 
+    rect rgb(255, 255, 240)
+        Note over O,Root: Structured Output Probe<br/>(if --structured-output=probe)
+        O->>Root: structured_completion(echo-JSON prompt, max_tokens=256)
+        Root-->>O: StructuredResponse or None/error
+        Note over O: Pass → use structured in loop<br/>Fail → regex fallback<br/>Result cached on RLM instance
+    end
+
     O->>O: Build messages:<br/>[system_prompt, user_prompt + sample + brief?]
 
     loop Main iteration loop (max_iterations, timeout, token budget)
         O->>O: Check guards (timeout, token budget)
 
         O->>Root: messages (full conversation history)
-        Root-->>O: Response with ```python``` blocks
+        Root-->>O: Response (structured JSON or markdown)
 
-        O->>O: Extract code blocks (regex)
+        O->>O: Extract code (structured or regex fallback)
 
         alt No code blocks found
             alt "FINAL" in response text
@@ -252,7 +269,7 @@ Return final answer
 | **Termination** | `FINAL()` + max iterations + timeouts | `FINAL()` + max iterations + `--timeout` + `--max-token-budget` | **Match** |
 | **Default model** | Not applicable (paper uses specific models per experiment) | `--model` is required (no defaults) | **Aligned** — user must choose explicitly |
 | **Code extraction** | Not specified in detail | Regex: `` ```python\n(.*?)``` `` — only explicitly tagged Python blocks | Reasonable; ignores non-Python fenced blocks |
-| **Structured output** | Not discussed (implicitly uses free-form text) | `LLMBackend.supports_structured_output` property (default `False`); `StructuredResponse` dataclass and `STRUCTURED_RESPONSE_SCHEMA` for JSON-schema mode; `CompletionResult.structured` carries parsed response when available; `OpenAICompatibleBackend` implements `structured_completion()` via `response_format={"type": "json_object"}` with graceful fallback on malformed JSON | Extension beyond the paper; OpenAI-compatible backends now support it, Anthropic backend pending |
+| **Structured output** | Not discussed (implicitly uses free-form text) | `--structured-output` flag (`probe`/`on`/`off`, default `probe`). In `probe` mode a cheap echo-JSON request tests the backend before the main loop; if valid `StructuredResponse` returned → `structured_completion()` used in loop, otherwise regex fallback. `on` skips the probe (always structured), `off` skips structured entirely (always regex). Both `OpenAICompatibleBackend` and `AnthropicBackend` implement `structured_completion()`. | Extension beyond the paper; probe prevents regressions on backends that claim JSON support but produce invalid output (e.g. Ollama) |
 | **Sandbox isolation** | Rootless container (security delegated to runtime) | Safe builtins whitelist (no `__import__`, `open`, `exec`) + container delegation | We add in-process restrictions on top of container isolation |
 | **Output truncation** | Mentioned (first ~10K chars) | 10,000 char cap per execution | Match |
 | **Multi-file support** | Not discussed | `FILES` dict + `CompositeContext` for directories | Extension beyond the paper |

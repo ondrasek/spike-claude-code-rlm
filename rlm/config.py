@@ -32,6 +32,7 @@ _VALID_BACKENDS = frozenset(
     {"anthropic", "openai", "openrouter", "huggingface", "ollama", "claude"}
 )
 _VALID_CE_MODES = frozenset({"off", "pre_loop", "per_query", "both"})
+_VALID_STRUCTURED_OUTPUT_MODES = frozenset({"probe", "on", "off"})
 
 
 @dataclass
@@ -76,6 +77,7 @@ class SettingsConfig:
     verify: bool | None = None
     context_engineer_mode: str | None = None
     share_brief_with_root: bool | None = None
+    structured_output: str | None = None
 
 
 @dataclass
@@ -185,6 +187,7 @@ def _parse_raw(raw: dict[str, Any], config_dir: Path) -> RLMConfig:
             verify=s.get("verify"),
             context_engineer_mode=s.get("context_engineer_mode"),
             share_brief_with_root=s.get("share_brief_with_root"),
+            structured_output=s.get("structured_output"),
         )
 
     return RLMConfig(defaults=defaults, roles=roles, settings=settings, config_dir=config_dir)
@@ -229,6 +232,14 @@ def _validate_config(config: RLMConfig) -> None:
     if ce_mode is not None and ce_mode not in _VALID_CE_MODES:
         raise ConfigError(
             f"Unknown context_engineer_mode '{ce_mode}'. Valid modes: {sorted(_VALID_CE_MODES)}"
+        )
+
+    # Check structured_output mode
+    so_mode = config.settings.structured_output
+    if so_mode is not None and so_mode not in _VALID_STRUCTURED_OUTPUT_MODES:
+        raise ConfigError(
+            f"Unknown structured_output '{so_mode}'. "
+            f"Valid modes: {sorted(_VALID_STRUCTURED_OUTPUT_MODES)}"
         )
 
     # Check prompt constraints per role

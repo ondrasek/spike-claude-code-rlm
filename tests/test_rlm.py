@@ -715,3 +715,236 @@ class TestStructuredOutput:
         assert "regex_extractions" in summary
         assert summary["structured_extractions"] == 0
         assert summary["regex_extractions"] == 0
+
+
+# =====================================================================
+# Structured output probe
+# =====================================================================
+
+
+class TestStructuredOutputProbe:
+    """Tests for the structured output probe feature."""
+
+    def test_probe_mode_probes_backend(self) -> None:
+        """In probe mode with a passing probe, structured output is used."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import make_structured_callback
+
+        # Build a backend that returns valid structured responses
+        results = [
+            # Probe response
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="probe",
+                    is_final=True,
+                    final_answer="ok",
+                ),
+            ),
+            # Actual completion — code block
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Ready to answer",
+                    is_final=True,
+                    final_answer="The answer is 42",
+                ),
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="probe")
+        result = rlm.completion(SAMPLE_TEXT, "What is the answer?")
+        assert result.success is True
+        assert result.stats.structured_probe_passed is True
+        assert result.stats.structured_extractions >= 1
+
+    def test_probe_mode_probe_fails_falls_back_to_regex(self) -> None:
+        """In probe mode, if the probe fails, regex extraction is used."""
+        from .conftest import StructuredBackend
+
+        # Backend whose structured_completion returns structured=None (probe fails)
+        # but completion returns markdown code blocks (regex works)
+        call_count = {"n": 0}
+
+        class ProbeFailBackend(StructuredBackend):
+            def structured_completion(
+                self,
+                messages: list[dict[str, str]],
+                model: str,
+                **kwargs: object,
+            ) -> CompletionResult:
+                return CompletionResult(text="{}", usage=TokenUsage(), structured=None)
+
+            def completion(
+                self,
+                messages: list[dict[str, str]],
+                model: str,
+                **kwargs: object,
+            ) -> CompletionResult:
+                nonlocal call_count
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    return CompletionResult(
+                        text='```python\nprint("exploring")\n```',
+                        usage=TokenUsage(),
+                    )
+                return CompletionResult(
+                    text='```python\nFINAL("regex answer")\n```',
+                    usage=TokenUsage(),
+                )
+
+        backend = ProbeFailBackend([CompletionResult(text="", usage=TokenUsage())])
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="probe")
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "regex answer" in result.answer
+        assert result.stats.structured_probe_passed is False
+        assert result.stats.regex_extractions >= 1
+        assert result.stats.structured_extractions == 0
+
+    def test_on_mode_skips_probe(self) -> None:
+        """In 'on' mode, structured output is used without probing."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import make_structured_callback
+
+        results = [
+            CompletionResult(
+                text="{}",
+                usage=TokenUsage(),
+                structured=StructuredResponse(
+                    reasoning="Answering",
+                    is_final=True,
+                    final_answer="direct answer",
+                ),
+            ),
+        ]
+        backend = make_structured_callback(results)
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="on")
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert result.answer == "direct answer"
+        # No probe was made — structured_probe_passed stays None
+        assert result.stats.structured_probe_passed is None
+
+    def test_off_mode_skips_structured(self) -> None:
+        """In 'off' mode, only regex extraction is used."""
+        backend = make_final_in_two_iterations_callback()
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="off")
+        result = rlm.completion(SAMPLE_TEXT, "What is the answer?")
+        assert result.success is True
+        assert "42" in result.answer
+        assert result.stats.regex_extractions >= 1
+        assert result.stats.structured_extractions == 0
+        assert result.stats.structured_probe_passed is None
+
+    def test_probe_error_disables_structured(self) -> None:
+        """If the probe raises an exception, structured output is disabled."""
+        from .conftest import StructuredBackend
+
+        call_count = {"n": 0}
+
+        class ProbeErrorBackend(StructuredBackend):
+            def structured_completion(
+                self,
+                messages: list[dict[str, str]],
+                model: str,
+                **kwargs: object,
+            ) -> CompletionResult:
+                raise RuntimeError("backend exploded during probe")
+
+            def completion(
+                self,
+                messages: list[dict[str, str]],
+                model: str,
+                **kwargs: object,
+            ) -> CompletionResult:
+                nonlocal call_count
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    return CompletionResult(
+                        text='```python\nprint("exploring")\n```',
+                        usage=TokenUsage(),
+                    )
+                return CompletionResult(
+                    text='```python\nFINAL("fallback answer")\n```',
+                    usage=TokenUsage(),
+                )
+
+        backend = ProbeErrorBackend([CompletionResult(text="", usage=TokenUsage())])
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="probe")
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "fallback answer" in result.answer
+        assert result.stats.structured_probe_passed is False
+
+    def test_backend_without_structured_support_skips_probe(self) -> None:
+        """CallbackBackend (supports=False) skips the probe entirely."""
+        backend = make_final_in_two_iterations_callback()
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="probe")
+        result = rlm.completion(SAMPLE_TEXT, "query")
+        assert result.success is True
+        assert "42" in result.answer
+        # No probe for unsupported backends
+        assert result.stats.structured_probe_passed is None
+        assert result.stats.regex_extractions >= 1
+
+    def test_probe_cached_across_completions(self) -> None:
+        """The probe result is cached on the RLM instance across completions."""
+        from rlm.backends import StructuredResponse
+
+        from .conftest import StructuredBackend
+
+        probe_call_count = {"n": 0}
+
+        class CountingStructuredBackend(StructuredBackend):
+            def structured_completion(
+                self,
+                messages: list[dict[str, str]],
+                model: str,
+                **kwargs: object,
+            ) -> CompletionResult:
+                nonlocal probe_call_count
+                # Only the probe has max_tokens=256
+                if kwargs.get("max_tokens") == 256:
+                    probe_call_count["n"] += 1
+                    return CompletionResult(
+                        text="{}",
+                        usage=TokenUsage(),
+                        structured=StructuredResponse(
+                            reasoning="probe",
+                            is_final=True,
+                            final_answer="ok",
+                        ),
+                    )
+                return CompletionResult(
+                    text="{}",
+                    usage=TokenUsage(),
+                    structured=StructuredResponse(
+                        reasoning="answer",
+                        is_final=True,
+                        final_answer="cached answer",
+                    ),
+                )
+
+        backend = CountingStructuredBackend([CompletionResult(text="", usage=TokenUsage())])
+        rlm = RLM(backend=backend, model="test-model", max_iterations=10, structured_output="probe")
+
+        # First completion triggers probe
+        result1 = rlm.completion(SAMPLE_TEXT, "query 1")
+        assert result1.success is True
+        assert probe_call_count["n"] == 1
+
+        # Second completion reuses cached probe result
+        result2 = rlm.completion(SAMPLE_TEXT, "query 2")
+        assert result2.success is True
+        assert probe_call_count["n"] == 1  # Still 1 — cached
+
+    def test_default_structured_output_is_probe(self) -> None:
+        """RLM defaults to 'probe' structured output mode."""
+        backend = CallbackBackend(lambda msgs, model: "no code")
+        rlm = RLM(backend=backend, model="test-model")
+        assert rlm.structured_output == "probe"

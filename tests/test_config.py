@@ -300,9 +300,39 @@ class TestDataclassDefaults:
         assert s.verbose is None
         assert s.verify is None
 
+    def test_settings_config_structured_output_default_none(self) -> None:
+        s = SettingsConfig()
+        assert s.structured_output is None
+
     def test_resolved_role_config_all_none(self) -> None:
         r = ResolvedRoleConfig()
         assert r.backend is None
         assert r.model is None
         assert r.api_key is None
         assert r.system_prompt is None
+
+
+# =====================================================================
+# Structured output config validation
+# =====================================================================
+
+
+class TestStructuredOutputConfig:
+    """Tests for structured_output config validation."""
+
+    def test_valid_modes_accepted(self, tmp_path: Path) -> None:
+        for mode in ("probe", "on", "off"):
+            data = {"settings": {"structured_output": mode}}
+            path = _write_yaml(tmp_path, data, name=f"rlm_{mode}.yaml")
+            config = load_config(path)
+            assert config.settings.structured_output == mode
+
+    def test_invalid_mode_raises(self, tmp_path: Path) -> None:
+        data = {"settings": {"structured_output": "always"}}
+        path = _write_yaml(tmp_path, data)
+        with pytest.raises(ConfigError, match="Unknown structured_output 'always'"):
+            load_config(path)
+
+    def test_default_is_none(self) -> None:
+        s = SettingsConfig()
+        assert s.structured_output is None

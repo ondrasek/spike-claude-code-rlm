@@ -39,6 +39,7 @@ class RLMStats:
     total_output_tokens: int = 0
     structured_extractions: int = 0
     regex_extractions: int = 0
+    structured_probe_passed: bool | None = None
 
 
 @dataclass
@@ -85,6 +86,7 @@ class RLM:
         context_engineer_model: str | None = None,
         context_engineer_pre_loop_prompt: str | None = None,
         context_engineer_per_query_prompt: str | None = None,
+        structured_output: str = "probe",
     ) -> None:
         """Initialize RLM orchestrator.
 
@@ -138,6 +140,9 @@ class RLM:
             Custom system prompt for pre-loop analysis.
         context_engineer_per_query_prompt : str | None
             Custom system prompt for per-query enhancement.
+        structured_output : str
+            Structured output mode: "probe" tests backend capability first,
+            "on" always uses structured output, "off" always uses regex extraction.
         """
         self.backend = backend
         self.model = model
@@ -163,6 +168,8 @@ class RLM:
         self.context_engineer_model = context_engineer_model or self.sub_rlm_model
         self.context_engineer_pre_loop_prompt = context_engineer_pre_loop_prompt
         self.context_engineer_per_query_prompt = context_engineer_per_query_prompt
+        self.structured_output = structured_output
+        self._structured_probe_result: bool | None = None
 
     def _log(self, message: str) -> None:
         """Log a message if verbose is enabled.
@@ -408,6 +415,82 @@ class RLM:
 
         return brief
 
+    def _probe_structured_output(self, stats: RLMStats) -> bool:
+        """Send a cheap probe to test if the backend produces valid structured output.
+
+        Parameters
+        ----------
+        stats : RLMStats
+            Statistics object to update with probe token usage.
+
+        Returns
+        -------
+        bool
+            True if the probe succeeded (backend produces valid structured JSON).
+        """
+        if self._structured_probe_result is not None:
+            return self._structured_probe_result
+
+        self._log("Structured output probe: testing backend capability")
+
+        try:
+            result = self.backend.structured_completion(
+                [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Respond with this exact JSON: "
+                            '{"reasoning": "probe", "code": null, '
+                            '"is_final": true, "final_answer": "ok"}'
+                        ),
+                    },
+                ],
+                self.model,
+                max_tokens=256,
+            )
+            stats.total_input_tokens += result.usage.input_tokens
+            stats.total_output_tokens += result.usage.output_tokens
+
+            if result.structured is not None:
+                self._log("Structured output probe: PASSED")
+                self._structured_probe_result = True
+                stats.structured_probe_passed = True
+                return True
+
+            self._log("Structured output probe: FAILED (invalid response)")
+            self._structured_probe_result = False
+            stats.structured_probe_passed = False
+            return False
+
+        except Exception as e:
+            self._log(f"Structured output probe: FAILED ({e!s})")
+            self._structured_probe_result = False
+            stats.structured_probe_passed = False
+            return False
+
+    def _use_structured_output(self, stats: RLMStats) -> bool:
+        """Decide whether to use structured output for this completion.
+
+        Parameters
+        ----------
+        stats : RLMStats
+            Statistics object (passed to probe if needed).
+
+        Returns
+        -------
+        bool
+            True if structured output should be used.
+        """
+        if self.structured_output == "off":
+            return False
+        if not self.backend.supports_structured_output:
+            return False
+        if self.structured_output == "on":
+            return True
+        # probe: test the backend
+        return self._probe_structured_output(stats)
+
     def _enhance_per_query(
         self,
         snippet: str,
@@ -650,7 +733,7 @@ class RLM:
             does not support structured output or parsing failed.
         """
         try:
-            if self.backend.supports_structured_output:
+            if self._use_structured_output(stats):
                 result = self.backend.structured_completion(
                     messages, self.model, max_tokens=self.max_tokens
                 )
@@ -835,6 +918,12 @@ class RLM:
         self._log(f"Max iterations: {self.max_iterations} | Max tokens: {self.max_tokens}")
         self._log(f"Compact prompt: {self.compact_prompt}")
         self._log(f"Context engineer mode: {self.context_engineer_mode}")
+        self._log(f"Structured output mode: {self.structured_output}")
+
+        # Probe structured output capability if in auto mode
+        use_structured = self._use_structured_output(stats)
+        self._log(f"Using structured output: {use_structured}")
+
         self._log(f"System prompt length: {len(root_prompt):,} chars")
 
         return repl, messages
@@ -998,6 +1087,7 @@ class RLM:
                 "total_output_tokens": 0,
                 "structured_extractions": 0,
                 "regex_extractions": 0,
+                "structured_probe_passed": None,
             }
         return {
             "iterations": self._last_stats.iterations,
@@ -1008,4 +1098,5 @@ class RLM:
             "total_output_tokens": self._last_stats.total_output_tokens,
             "structured_extractions": self._last_stats.structured_extractions,
             "regex_extractions": self._last_stats.regex_extractions,
+            "structured_probe_passed": self._last_stats.structured_probe_passed,
         }
