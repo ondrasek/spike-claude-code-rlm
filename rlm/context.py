@@ -504,6 +504,11 @@ class CompositeContext:
         # contexts; but slicing is typically used on small windows
         # (e.g. CONTEXT[:500]).  We stream through sources to avoid a
         # full copy when possible.
+        # NOTE(eng): The current implementation still calls str(self) and
+        # materializes the *entire* concatenation for both int indexing and
+        # slicing. For large multi-file contexts this can cause high memory
+        # usage / slowdowns. If true streaming is desired, this method needs
+        # to be reworked to avoid building the full string.
         if isinstance(index, int):
             return str(self)[index]
         return str(self)[index]

@@ -65,6 +65,9 @@ def _materialize_context(
 # Restricted set of builtins safe for the REPL sandbox.
 # This prevents LLM-generated code from importing arbitrary modules,
 # accessing the filesystem, or executing shell commands.
+# NOTE(eng): This is a *best-effort* in-process restriction, not a complete
+# security sandbox. Python introspection/edge cases may still allow escape in
+# some environments. Treat runtime/container isolation as the primary boundary.
 _SAFE_BUILTINS: dict[str, Any] = {
     # Types and constructors
     "True": True,
